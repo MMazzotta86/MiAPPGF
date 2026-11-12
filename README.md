@@ -1,6 +1,6 @@
 ﻿# Fijo: gastos mensuales
 
-App personal de gastos fijos mensuales y anuales con inicio de sesión y almacenamiento histórico en Supabase.
+App personal de gastos fijos mensuales, trimestrales y anuales con inicio de sesión y almacenamiento histórico en Supabase.
 
 ## Ejecutar localmente
 
@@ -19,7 +19,7 @@ La conexión bancaria Tink se retiró del flujo porque no está habilitada para 
 
 ## Gastos anuales
 
-Al añadir un gasto, selecciona la frecuencia **Anual**, indica el importe total que pagas en el año y el mes y día del cobro. El gasto aparecerá únicamente en ese mes y se guardará como un recibo anual en el historial. La base de datos distingue frecuencia y mes de vencimiento en las plantillas y en las copias mensuales.
+Al añadir un gasto, selecciona **Mensual**, **Trimestral** o **Anual**. Para los pagos trimestrales y anuales, indica el importe de cada recibo y el mes en el que empieza el ciclo. Los gastos aparecen en los meses en los que vencen; al avanzar de mes puedes consultar los pagos previstos. Cada vencimiento se guarda en el historial.
 
 ## Uso desde el móvil
 
