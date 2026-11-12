@@ -96,9 +96,13 @@ const installmentAmount = (purchase, number) => {
   const extraCents = totalCents % count;
   return (baseCents + (number <= extraCents ? 1 : 0)) / 100;
 };
+const addMonthsClamped = (date, offset) => {
+  const month = date.getMonth() + offset;
+  const lastDay = new Date(date.getFullYear(), month + 1, 0).getDate();
+  return new Date(date.getFullYear(), month, Math.min(date.getDate(), lastDay));
+};
 const installmentDate = (purchase, number) => {
-  const firstMonth = new Date(`${purchase.first_installment_month}T00:00:00`);
-  return new Date(firstMonth.getFullYear(), firstMonth.getMonth() + number - 1, 1);
+  return addMonthsClamped(new Date(`${purchase.first_payment_date}T00:00:00`), number - 1);
 };
 const cardInstallment = (purchase, number) => {
   const paymentDate = installmentDate(purchase, number);
@@ -110,6 +114,7 @@ const cardInstallment = (purchase, number) => {
     source: 'credit_card',
     frequency: 'credit_card',
     installment_number: number,
+    payment_date: dateKey(paymentDate),
     payment_month: monthKey(paymentDate),
     amount: installmentAmount(purchase, number),
     paid: (purchase.paid_installments || []).includes(number),
@@ -205,8 +210,10 @@ async function loadMonth() {
   if (yearFixedError) return showError(yearFixedError);
   const { data: yearVariableData, error: yearVariableError } = await supabase.from('variable_expenses').select('*').gte('expense_date', yearStart).lt('expense_date', nextYearStart);
   if (yearVariableError) return showError(yearVariableError);
-  const { data: cardPurchaseData, error: cardPurchaseError } = await supabase.from('credit_card_purchases').select('*').order('first_installment_month').order('name');
-  if (cardPurchaseError && !['PGRST205', '42P01'].includes(cardPurchaseError.code)) return showError(cardPurchaseError);
+  const { data: cardPurchaseData, error: cardPurchaseError } = await supabase.from('credit_card_purchases')
+    .select('id,user_id,name,amount,installment_count,purchase_date,first_payment_date,first_installment_month,paid_in_full,card_name,category,paid_installments,created_at,updated_at')
+    .order('first_installment_month').order('name');
+  if (cardPurchaseError && !['PGRST204', 'PGRST205', '42P01'].includes(cardPurchaseError.code)) return showError(cardPurchaseError);
   cardSchemaAvailable = !cardPurchaseError;
   yearFixedSnapshots = yearFixedData || [];
   yearVariableExpenses = yearVariableData || [];
@@ -393,7 +400,11 @@ function render() {
       : `<button class="status-pill ${item.paid ? 'status-paid' : 'status-pending'}" data-action="toggle">${item.paid ? '✓ Pagado' : '◷ Programado'}</button>`;
     const institution = item.source === 'credit_card' ? item.card_name : item.bank || 'Sin asignar';
     const dateMetaLabel = item.source === 'credit_card' ? 'FECHA DEL GASTO' : item.source === 'variable' ? 'FECHA' : 'VENCIMIENTO';
-    return `<article class="expense-row" data-id="${escapeHtml(item.id)}" data-source="${item.source}"><div class="expense-name"><span class="category-icon ${categoryClasses[category]}" aria-hidden="true">${categoryIcons[category]}</span><div><div class="expense-title">${escapeHtml(item.name)}</div><div class="expense-category-label">${escapeHtml(category)} · ${escapeHtml(institution)}</div></div></div><div class="row-meta"><div class="row-label">${dateMetaLabel}</div><div class="row-value">${escapeHtml(dateLabel)}</div></div><div class="row-meta"><div class="row-label">TIPO</div><div class="row-value">${escapeHtml(frequency)}</div></div><div class="amount-meta"><div class="row-label">IMPORTE</div><div class="row-value amount-value">${money.format(item.amount)}</div></div>${status}<div class="row-actions"><button class="icon-button" data-action="edit" aria-label="Editar ${escapeHtml(item.name)}" title="Editar">✎</button><button class="icon-button" data-action="delete" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">×</button></div></article>`;
+    const secondaryMetaLabel = item.source === 'credit_card' ? 'FECHA DEL PAGO' : 'TIPO';
+    const secondaryMetaValue = item.source === 'credit_card' ? expenseDateLabel(item.payment_date) : frequency;
+    const cardDescriptor = item.source === 'credit_card' ? ` · ${frequency}` : '';
+    const rowClass = item.source === 'credit_card' ? 'expense-row credit-card-row' : 'expense-row';
+    return `<article class="${rowClass}" data-id="${escapeHtml(item.id)}" data-source="${item.source}"><div class="expense-name"><span class="category-icon ${categoryClasses[category]}" aria-hidden="true">${categoryIcons[category]}</span><div><div class="expense-title">${escapeHtml(item.name)}</div><div class="expense-category-label">${escapeHtml(category)} · ${escapeHtml(institution)}${escapeHtml(cardDescriptor)}</div></div></div><div class="row-meta ${item.source === 'credit_card' ? 'purchase-meta' : ''}"><div class="row-label">${dateMetaLabel}</div><div class="row-value">${escapeHtml(dateLabel)}</div></div><div class="row-meta ${item.source === 'credit_card' ? 'payment-meta' : ''}"><div class="row-label">${secondaryMetaLabel}</div><div class="row-value">${escapeHtml(secondaryMetaValue)}</div></div><div class="amount-meta"><div class="row-label">IMPORTE</div><div class="row-value amount-value">${money.format(item.amount)}</div></div>${status}<div class="row-actions"><button class="icon-button" data-action="edit" aria-label="Editar ${escapeHtml(item.name)}" title="Editar">✎</button><button class="icon-button" data-action="delete" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">×</button></div></article>`;
   }).join('');
 }
 
@@ -416,8 +427,8 @@ function openDialog(item = null, source = 'fixed') {
   $('#expense-card-name').value = purchase?.card_name || '';
   $('#card-full-payment').checked = Boolean(purchase?.paid_in_full);
   $('#expense-installment-count').value = purchase?.installment_count || 1;
-  const defaultFirstInstallment = new Date(defaultDate.getFullYear(), defaultDate.getMonth() + 1, 1);
-  $('#first-installment-month').value = purchase?.first_installment_month.slice(0, 7) || monthKey(defaultFirstInstallment).slice(0, 7);
+  const defaultFirstPayment = addMonthsClamped(defaultDate, 1);
+  $('#first-installment-month').value = purchase?.first_payment_date || dateKey(defaultFirstPayment);
   $('#expense-date').disabled = (source !== 'variable' && source !== 'credit_card') || (source === 'credit_card' && purchaseHasPaidInstallments);
   $('#expense-day').disabled = source !== 'fixed';
   $('#expense-frequency').disabled = source !== 'fixed';
@@ -452,9 +463,12 @@ function updateFrequencyFields() {
   const scheduled = frequency !== 'monthly';
   $('#fixed-month-field').hidden = !scheduled || source !== 'fixed';
   $('#expense-date-field').hidden = source !== 'variable' && !isCard;
-  $('#installment-fields').hidden = !isCard || paidInFull;
+  $('#installment-fields').hidden = !isCard;
+  $('#installment-fields').classList.toggle('single-field', paidInFull);
+  $('#installment-count-field').hidden = paidInFull;
   $('#expense-installment-count').disabled = !isCard || paidInFull || purchaseHasPaidInstallments;
-  $('#first-installment-month').disabled = !isCard || paidInFull || purchaseHasPaidInstallments;
+  $('#first-installment-month').disabled = !isCard || purchaseHasPaidInstallments;
+  $('#first-payment-date-label').textContent = paidInFull ? 'Fecha del pago total' : 'Fecha de la primera cuota';
   $('#card-full-payment-field').hidden = !isCard;
   $('#card-full-payment').disabled = !isCard || purchaseHasPaidInstallments;
   $('#expense-date').disabled = (source !== 'variable' && !isCard) || (isCard && purchaseHasPaidInstallments);
@@ -467,7 +481,12 @@ $('#add-variable-expense').addEventListener('click', () => openDialog(null, 'var
 $('#add-card-expense').addEventListener('click', () => openDialog(null, 'credit_card'));
 $('#mobile-add')?.addEventListener('click', () => openDialog());
 $('#expense-frequency').addEventListener('change', updateFrequencyFields);
-$('#card-full-payment').addEventListener('change', updateFrequencyFields);
+$('#card-full-payment').addEventListener('change', () => {
+  const purchaseDate = new Date(`${$('#expense-date').value}T00:00:00`);
+  const firstPaymentDate = $('#card-full-payment').checked ? purchaseDate : addMonthsClamped(purchaseDate, 1);
+  $('#first-installment-month').value = dateKey(firstPaymentDate);
+  updateFrequencyFields();
+});
 $('#close-dialog').addEventListener('click', () => $('#expense-dialog').close());
 $('#cancel-dialog').addEventListener('click', () => $('#expense-dialog').close());
 $('#expense-dialog').addEventListener('click', (event) => { if (event.target === $('#expense-dialog')) $('#expense-dialog').close(); });
@@ -498,7 +517,8 @@ $('#expense-form').addEventListener('submit', async (event) => {
       amount: values.amount,
       installment_count: installmentCount,
       purchase_date: $('#expense-date').value,
-      first_installment_month: paidInFull ? `${$('#expense-date').value.slice(0, 7)}-01` : `${$('#first-installment-month').value}-01`,
+      first_payment_date: $('#first-installment-month').value,
+      first_installment_month: `${$('#first-installment-month').value.slice(0, 7)}-01`,
       paid_in_full: paidInFull,
       card_name: $('#expense-card-name').value.trim(),
       category: values.category,
