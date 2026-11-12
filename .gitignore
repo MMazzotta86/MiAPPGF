@@ -1,0 +1,8 @@
+.env
+.env.*
+!.env.example
+.tink-user.json
+node_modules/
+npm-debug.log*
+dist/
+.vercel/
