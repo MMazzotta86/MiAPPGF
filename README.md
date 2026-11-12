@@ -31,6 +31,8 @@ La conexión bancaria directa Tink no está habilitada para este uso personal. N
 
 Al añadir un gasto, selecciona **Mensual**, **Trimestral** o **Anual**. Para los pagos trimestrales y anuales, indica el importe de cada recibo y el mes en el que empieza el ciclo. Los gastos aparecen en los meses en los que vencen; al avanzar de mes puedes consultar los pagos previstos. Cada vencimiento se guarda en el historial.
 
+El filtro de frecuencia permite ver todas las plantillas mensuales, trimestrales o anuales, independientemente del mes de pago. Al filtrar por **Anuales**, el resumen muestra la suma de sus importes anuales; el mes de pago sigue indicado junto a cada gasto.
+
 ## Uso desde el móvil
 
 La interfaz se adapta a pantallas pequeñas y la app incluye un manifiesto y service worker para instalarla como PWA. Para abrirla en tu teléfono y añadirla a la pantalla de inicio, primero hay que publicarla en un dominio HTTPS; `npm start` solo sirve la app en este ordenador. En Android, abre la web con Chrome y elige **Instalar aplicación**. En iPhone, abre la web con Safari y usa **Compartir > Añadir a pantalla de inicio**. Los gastos se consultan en Supabase, así que se necesita conexión a Internet.
