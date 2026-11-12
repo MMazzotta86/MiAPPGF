@@ -300,6 +300,7 @@ function render() {
   const fixedPaidTotal = fixedPaidItems.reduce((sum, item) => sum + Number(item.amount), 0);
   const variablePaidTotal = variableItems.reduce((sum, item) => sum + Number(item.amount), 0);
   const cardPaidTotal = cardPaidItems.reduce((sum, item) => sum + Number(item.amount), 0);
+  const cardTotal = cardPaidTotal + cardPendingItems.reduce((sum, item) => sum + Number(item.amount), 0);
   const fixedPaidLabel = `${fixedPaidItems.length} ${fixedPaidItems.length === 1 ? 'fijo pagado' : 'fijos pagados'}`;
   const variablePaidLabel = `${variableItems.length} ${variableItems.length === 1 ? 'variable pagado' : 'variables pagados'}`;
   const paidTotal = fixedPaidTotal + variablePaidTotal + cardPaidTotal;
@@ -319,7 +320,7 @@ function render() {
     quarterly: `${fixedPaidItems.length} pagos trimestrales pagados en ${year}`,
     annual: `${fixedPaidItems.length} pagos anuales pagados en ${year}`,
     variable: `${variableItems.length} gastos variables pagados en ${year}`,
-    credit_card: `${cardPaidItems.length} cuotas pagadas en ${year}`,
+    credit_card: `${cardItems.length} cuotas de tarjeta en ${year}`,
   };
   const hasFrequencyFilter = frequencyFilter !== 'all';
   $('.total-card .stat-top span').textContent = totalLabels[frequencyFilter] || 'Gastos pagados este mes';
@@ -327,17 +328,17 @@ function render() {
   $('#pending-title').textContent = hasFrequencyFilter ? `Programados en ${year}` : 'Gastos por pagar';
   $('#paid-title').textContent = hasFrequencyFilter ? `Fijos pagados en ${year}` : 'Fijos pagados';
   $('#variable-paid-title').textContent = hasFrequencyFilter ? `Variables pagados en ${year}` : 'Variables pagados';
-  $('#card-paid-title').textContent = hasFrequencyFilter ? `Cuotas pagadas en ${year}` : 'Cuotas pagadas';
+  $('#card-paid-title').textContent = frequencyFilter === 'all' ? `Total tarjetas · ${label}` : `Total tarjetas · ${year}`;
   $('#pending-value').textContent = money.format(pendingTotal);
   $('#paid-value').textContent = money.format(fixedPaidTotal);
   $('#variable-paid-value').textContent = money.format(variablePaidTotal);
-  $('#card-paid-value').textContent = money.format(cardPaidTotal);
+  $('#card-paid-value').textContent = money.format(cardTotal);
   $('#total-foot').textContent = totalFooters[frequencyFilter] || `${fixedPaidLabel} + ${variablePaidLabel} + ${cardPaidItems.length} ${cardPaidItems.length === 1 ? 'cuota pagada' : 'cuotas pagadas'}`;
   const pendingCount = fixedPendingItems.length + cardPendingItems.length;
   $('#pending-foot').textContent = `${pendingCount} ${hasFrequencyFilter ? (pendingCount === 1 ? 'pago programado' : 'pagos programados') : (pendingCount === 1 ? 'gasto por pagar' : 'gastos por pagar')}`;
   $('#paid-foot').textContent = `${fixedPaidItems.length} de ${fixedItems.length} gastos fijos pagados`;
   $('#variable-paid-foot').textContent = `${variableItems.length} ${variableItems.length === 1 ? 'gasto variable pagado' : 'gastos variables pagados'}`;
-  $('#card-paid-foot').textContent = `${cardPaidItems.length} ${cardPaidItems.length === 1 ? 'cuota pagada' : 'cuotas pagadas'}`;
+  $('#card-paid-foot').textContent = `${cardItems.length} ${cardItems.length === 1 ? 'cuota' : 'cuotas'} · ${cardPaidItems.length} pagadas, ${cardPendingItems.length} programadas`;
   $('#progress-title').textContent = hasFrequencyFilter ? `Este año · ${year}` : 'Tu mes en marcha';
   $('#progress-label').textContent = `${progress} % pagado`;
   $('#progress-fill').style.width = `${progress}%`;

@@ -127,3 +127,5 @@ grant select, insert, update, delete on public.fixed_expenses to authenticated;
 grant select, insert, update, delete on public.monthly_expenses to authenticated;
 grant select, insert, update, delete on public.variable_expenses to authenticated;
 grant select, insert, update, delete on public.credit_card_purchases to authenticated;
+
+notify pgrst, 'reload schema';
