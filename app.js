@@ -14,10 +14,18 @@ const isDueInMonth = (item, date) => {
   if (item.frequency === 'quarterly') return (month - Number(item.annual_month) + 12) % 3 === 0;
   return true;
 };
+const nextDueMonth = (item, date) => {
+  for (let offset = 0; offset < 12; offset += 1) {
+    const month = new Date(date.getFullYear(), date.getMonth() + offset, 1);
+    if (isDueInMonth(item, month)) return month;
+  }
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+};
 const $ = (selector) => document.querySelector(selector);
 let currentUser = null;
 let expenses = [];
 let fixedTemplates = [];
+let occurrenceSnapshots = [];
 let listExpenses = [];
 let viewedMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let busy = false;
@@ -108,6 +116,30 @@ async function loadMonth() {
       if (seedError) return showError(seedError);
     }
   }
+  occurrenceSnapshots = [];
+  const frequency = frequencyFilterSelect.value;
+  if (frequency === 'quarterly' || frequency === 'annual') {
+    const scheduled = fixedTemplates
+      .filter((item) => item.frequency === frequency)
+      .map((item) => ({ item, month: monthKey(nextDueMonth(item, viewedMonth)) }));
+    const futurePayments = scheduled
+      .filter(({ month: paymentMonth }) => paymentMonth >= currentMonth)
+      .map(({ item, month: paymentMonth }) => ({ user_id: currentUser.id, fixed_expense_id: item.id, month: paymentMonth, name: item.name, amount: item.amount, due_day: item.due_day, category: item.category, bank: item.bank || 'Sin asignar', frequency: item.frequency, annual_month: item.annual_month }));
+    if (futurePayments.length) {
+      const { error: paymentSeedError } = await supabase.from('monthly_expenses').upsert(futurePayments, {
+        onConflict: 'user_id,fixed_expense_id,month',
+        ignoreDuplicates: true,
+      });
+      if (paymentSeedError) return showError(paymentSeedError);
+    }
+    if (scheduled.length) {
+      const months = [...new Set(scheduled.map(({ month: paymentMonth }) => paymentMonth))];
+      const ids = scheduled.map(({ item }) => item.id);
+      const { data: snapshots, error: snapshotError } = await supabase.from('monthly_expenses').select('*').in('month', months).in('fixed_expense_id', ids);
+      if (snapshotError) return showError(snapshotError);
+      occurrenceSnapshots = snapshots || [];
+    }
+  }
   const { data, error } = await supabase.from('monthly_expenses').select('*').eq('month', month).order('due_day').order('name');
   if (error) return showError(error);
   const nextMonth = new Date(viewedMonth.getFullYear(), viewedMonth.getMonth() + 1, 1);
@@ -134,7 +166,9 @@ function render() {
     : fixedTemplates
       .filter((item) => item.frequency === frequencyFilter)
       .map((template) => {
-        const snapshot = monthExpenses.find((item) => item.source === 'fixed' && item.fixed_expense_id === template.id);
+        const paymentMonth = monthKey(nextDueMonth(template, viewedMonth));
+        const snapshot = occurrenceSnapshots.find((item) => item.fixed_expense_id === template.id && item.month === paymentMonth)
+          || monthExpenses.find((item) => item.source === 'fixed' && item.fixed_expense_id === template.id);
         return {
           ...(snapshot || {}),
           ...template,
@@ -144,6 +178,7 @@ function render() {
           monthly_expense_id: snapshot?.id || null,
           hasSnapshot: Boolean(snapshot),
           paid: snapshot?.paid || false,
+          payment_month: paymentMonth,
         };
       });
   listExpenses = recurringItems.sort((a, b) => a.due_day - b.due_day || a.name.localeCompare(b.name, 'es'));
@@ -184,7 +219,7 @@ function render() {
   $('.progress-section').hidden = frequencyFilter !== 'all';
   const query = $('#search').value.trim().toLocaleLowerCase('es');
   const filter = $('#filter').value;
-  const visible = filtered.filter((item) => `${item.name} ${item.category} ${item.bank || 'Sin asignar'}`.toLocaleLowerCase('es').includes(query) && (filter === 'all' || (item.hasSnapshot !== false && (filter === 'paid' ? isPaid(item) : !isPaid(item)))));
+  const visible = filtered.filter((item) => `${item.name} ${item.category} ${item.bank || 'Sin asignar'}`.toLocaleLowerCase('es').includes(query) && (filter === 'all' || (filter === 'paid' ? isPaid(item) : !isPaid(item))));
   const list = $('#expense-list');
   if (!visible.length) {
     const noExpenses = monthExpenses.length === 0 && fixedTemplates.length === 0;
@@ -195,8 +230,14 @@ function render() {
   list.innerHTML = visible.map((item) => {
     const category = categoryIcons[item.category] ? item.category : 'Otros';
     const frequency = item.source === 'variable' ? 'Gasto variable' : item.frequency === 'annual' ? `Anual · ${monthName(item.annual_month)}` : item.frequency === 'quarterly' ? `Trimestral · desde ${monthName(item.annual_month)}` : 'Mensual';
-    const dateLabel = item.source === 'variable' ? expenseDateLabel(item.expense_date) : dayLabel(item.due_day);
-    const status = item.source === 'variable' ? '<span class="status-pill status-paid">✓ Registrado</span>' : item.hasSnapshot === false ? '<span class="status-pill status-pending">Programado</span>' : `<button class="status-pill ${item.paid ? 'status-paid' : 'status-pending'}" data-action="toggle">${item.paid ? '✓ Pagado' : '◷ Por pagar'}</button>`;
+    const dateLabel = item.source === 'variable'
+      ? expenseDateLabel(item.expense_date)
+      : item.payment_month
+        ? `${dayLabel(item.due_day)} · ${monthName(Number(item.payment_month.slice(5, 7)))} ${item.payment_month.slice(0, 4)}`
+        : dayLabel(item.due_day);
+    const status = item.source === 'variable'
+      ? '<span class="status-pill status-paid">✓ Pagado</span>'
+      : `<button class="status-pill ${item.paid ? 'status-paid' : 'status-pending'}" data-action="toggle">${item.paid ? '✓ Pagado' : '◷ Programado'}</button>`;
     return `<article class="expense-row" data-id="${escapeHtml(item.id)}" data-source="${item.source}"><div class="expense-name"><span class="category-icon ${categoryClasses[category]}" aria-hidden="true">${categoryIcons[category]}</span><div><div class="expense-title">${escapeHtml(item.name)}</div><div class="expense-category-label">${escapeHtml(category)} · ${escapeHtml(item.bank || 'Sin asignar')}</div></div></div><div class="row-meta"><div class="row-label">${item.source === 'variable' ? 'FECHA' : 'VENCIMIENTO'}</div><div class="row-value">${escapeHtml(dateLabel)}</div></div><div class="row-meta"><div class="row-label">TIPO</div><div class="row-value">${escapeHtml(frequency)}</div></div><div class="amount-meta"><div class="row-label">IMPORTE</div><div class="row-value amount-value">${money.format(item.amount)}</div></div>${status}<div class="row-actions"><button class="icon-button" data-action="edit" aria-label="Editar ${escapeHtml(item.name)}" title="Editar">✎</button><button class="icon-button" data-action="delete" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">×</button></div></article>`;
   }).join('');
 }
@@ -285,7 +326,26 @@ $('#expense-list').addEventListener('click', async (event) => {
   busy = true;
   let error;
   if (button.dataset.action === 'toggle' && item.source !== 'variable') {
-    ({ error } = await supabase.from('monthly_expenses').update({ paid: !item.paid, paid_at: item.paid ? null : new Date().toISOString() }).eq('id', item.monthly_expense_id || item.id));
+    const snapshotId = item.monthly_expense_id || (item.hasSnapshot === false ? null : item.id);
+    if (snapshotId) {
+      ({ error } = await supabase.from('monthly_expenses').update({ paid: !item.paid, paid_at: item.paid ? null : new Date().toISOString() }).eq('id', snapshotId));
+    } else {
+      const { error: insertError } = await supabase.from('monthly_expenses').insert({
+        user_id: currentUser.id,
+        fixed_expense_id: item.fixed_expense_id,
+        month: item.payment_month,
+        name: item.name,
+        amount: item.amount,
+        due_day: item.due_day,
+        category: item.category,
+        bank: item.bank || 'Sin asignar',
+        frequency: item.frequency,
+        annual_month: item.annual_month,
+        paid: true,
+        paid_at: new Date().toISOString(),
+      });
+      error = insertError;
+    }
   } else if (button.dataset.action === 'edit') {
     busy = false;
     return openDialog(item, item.source);
@@ -308,7 +368,7 @@ $('#search').addEventListener('input', render);
 $('#filter').addEventListener('change', render);
 bankFilterSelect.addEventListener('change', render);
 typeFilterSelect.addEventListener('change', render);
-frequencyFilterSelect.addEventListener('change', render);
+frequencyFilterSelect.addEventListener('change', () => loadMonth());
 
 // Bank statements are handled locally in the browser. No bank credentials or
 // original statement files are uploaded; only the reviewed expense rows go to Supabase.
