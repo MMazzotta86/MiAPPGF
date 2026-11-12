@@ -21,6 +21,10 @@ También puedes importar extractos bancarios en CSV de Revolut, Santander o ING 
 
 En el resumen mensual, **Gastos del mes** suma los gastos fijos marcados como pagados y todos los gastos variables registrados. Los otros indicadores muestran los gastos por pagar, los fijos pagados y los variables pagados.
 
+Al registrar o editar un gasto, selecciona **Santander**, **ING** o **Revolut**. Los filtros de banco y tipo de gasto se pueden combinar; las tarjetas del resumen se recalculan con la selección. Los gastos existentes aparecerán como **Sin asignar** hasta que les indiques un banco.
+
+Para activar esta función en una base de datos existente, ejecuta `supabase/setup.sql` en Supabase > SQL Editor. La migración añade el campo del banco a los gastos fijos, sus vencimientos mensuales y los gastos variables.
+
 La conexión bancaria directa Tink no está habilitada para este uso personal. No se solicitan ni guardan credenciales bancarias.
 
 ## Gastos anuales

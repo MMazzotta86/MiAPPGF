@@ -8,6 +8,7 @@ create table if not exists public.fixed_expenses (
   frequency text not null default 'monthly' check (frequency in ('monthly', 'quarterly', 'annual')),
   annual_month smallint not null default 1 check (annual_month between 1 and 12),
   category text not null default 'Otros',
+  bank text not null default 'Sin asignar',
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -24,6 +25,7 @@ create table if not exists public.monthly_expenses (
   frequency text not null default 'monthly' check (frequency in ('monthly', 'quarterly', 'annual')),
   annual_month smallint not null default 1 check (annual_month between 1 and 12),
   category text not null,
+  bank text not null default 'Sin asignar',
   paid boolean not null default false,
   paid_at timestamptz,
   created_at timestamptz not null default now(),
@@ -37,6 +39,7 @@ create table if not exists public.variable_expenses (
   amount numeric(12,2) not null check (amount > 0),
   expense_date date not null,
   category text not null default 'Otros',
+  bank text not null default 'Sin asignar',
   created_at timestamptz not null default now()
 );
 
@@ -57,6 +60,18 @@ alter table public.monthly_expenses
   add constraint monthly_expenses_frequency_check check (frequency in ('monthly', 'quarterly', 'annual')),
   drop constraint if exists monthly_expenses_annual_month_check,
   add constraint monthly_expenses_annual_month_check check (annual_month between 1 and 12);
+alter table public.fixed_expenses
+  add column if not exists bank text not null default 'Sin asignar',
+  drop constraint if exists fixed_expenses_bank_check,
+  add constraint fixed_expenses_bank_check check (bank in ('Santander', 'ING', 'Revolut', 'Sin asignar'));
+alter table public.monthly_expenses
+  add column if not exists bank text not null default 'Sin asignar',
+  drop constraint if exists monthly_expenses_bank_check,
+  add constraint monthly_expenses_bank_check check (bank in ('Santander', 'ING', 'Revolut', 'Sin asignar'));
+alter table public.variable_expenses
+  add column if not exists bank text not null default 'Sin asignar',
+  drop constraint if exists variable_expenses_bank_check,
+  add constraint variable_expenses_bank_check check (bank in ('Santander', 'ING', 'Revolut', 'Sin asignar'));
 
 create index if not exists monthly_expenses_user_month_idx
   on public.monthly_expenses (user_id, month);
