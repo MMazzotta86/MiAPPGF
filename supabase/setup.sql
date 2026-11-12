@@ -1,4 +1,4 @@
--- Ejecuta este archivo una vez en Supabase > SQL Editor.
+-- Ejecuta este archivo en Supabase > SQL Editor para crear o actualizar el esquema.
 create table if not exists public.fixed_expenses (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -43,6 +43,20 @@ create table if not exists public.variable_expenses (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.credit_card_purchases (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 120),
+  amount numeric(12,2) not null check (amount > 0),
+  installment_count smallint not null check (installment_count between 1 and 120 and installment_count <= amount * 100),
+  first_installment_month date not null check (extract(day from first_installment_month) = 1),
+  card_name text not null check (char_length(card_name) between 1 and 80),
+  category text not null default 'Otros',
+  paid_installments smallint[] not null default '{}',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- Compatibilidad con las tablas creadas antes de añadir gastos anuales.
 alter table public.fixed_expenses
   add column if not exists frequency text not null default 'monthly',
@@ -77,10 +91,13 @@ create index if not exists monthly_expenses_user_month_idx
   on public.monthly_expenses (user_id, month);
 create index if not exists variable_expenses_user_date_idx
   on public.variable_expenses (user_id, expense_date);
+create index if not exists credit_card_purchases_user_first_month_idx
+  on public.credit_card_purchases (user_id, first_installment_month);
 
 alter table public.fixed_expenses enable row level security;
 alter table public.monthly_expenses enable row level security;
 alter table public.variable_expenses enable row level security;
+alter table public.credit_card_purchases enable row level security;
 
 drop policy if exists "owner manages fixed expenses" on public.fixed_expenses;
 create policy "owner manages fixed expenses" on public.fixed_expenses
@@ -100,6 +117,13 @@ create policy "owner manages variable expenses" on public.variable_expenses
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "owner manages credit card purchases" on public.credit_card_purchases;
+create policy "owner manages credit card purchases" on public.credit_card_purchases
+  for all to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
 grant select, insert, update, delete on public.fixed_expenses to authenticated;
 grant select, insert, update, delete on public.monthly_expenses to authenticated;
 grant select, insert, update, delete on public.variable_expenses to authenticated;
+grant select, insert, update, delete on public.credit_card_purchases to authenticated;
