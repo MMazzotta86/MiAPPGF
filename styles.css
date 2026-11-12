@@ -47,6 +47,9 @@
 @media(min-width:1051px){.stats-grid{grid-template-columns:1.2fr repeat(4,minmax(0,1fr))}}
 #card-name-field[hidden],#installment-fields[hidden],#card-edit-note[hidden],#expense-bank-field[hidden]{display:none}
 .card-edit-note{margin:-4px 0 14px;color:#85838c;font-size:10px;line-height:1.5}
+.card-schema-notice{margin:12px 0 0;padding:11px 14px;border:1px solid #f0dfb8;border-radius:8px;background:#fff9eb;color:#80652d;font-size:11px;line-height:1.5}
+.card-schema-notice code{font-size:10px}
+.welcome-actions button:disabled{opacity:.55;cursor:not-allowed}
 .annual-summary-card{grid-column:1/-1;min-height:auto}
 .annual-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:12px}
 .annual-summary-item{display:flex;flex-direction:column;gap:4px}

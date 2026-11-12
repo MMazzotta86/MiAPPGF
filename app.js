@@ -29,6 +29,7 @@ let occurrenceSnapshots = [];
 let yearFixedSnapshots = [];
 let yearVariableExpenses = [];
 let cardPurchases = [];
+let cardSchemaAvailable = false;
 let listExpenses = [];
 let viewedMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let busy = false;
@@ -205,10 +206,13 @@ async function loadMonth() {
   const { data: yearVariableData, error: yearVariableError } = await supabase.from('variable_expenses').select('*').gte('expense_date', yearStart).lt('expense_date', nextYearStart);
   if (yearVariableError) return showError(yearVariableError);
   const { data: cardPurchaseData, error: cardPurchaseError } = await supabase.from('credit_card_purchases').select('*').order('first_installment_month').order('name');
-  if (cardPurchaseError) return showError(cardPurchaseError);
+  if (cardPurchaseError && !['PGRST205', '42P01'].includes(cardPurchaseError.code)) return showError(cardPurchaseError);
+  cardSchemaAvailable = !cardPurchaseError;
   yearFixedSnapshots = yearFixedData || [];
   yearVariableExpenses = yearVariableData || [];
   cardPurchases = cardPurchaseData || [];
+  $('#card-schema-notice').hidden = cardSchemaAvailable;
+  $('#add-card-expense').disabled = !cardSchemaAvailable;
   refreshCardFilter();
   const cardMonthItems = cardPurchases.flatMap(purchaseInstallments).filter((item) => item.payment_month === month);
   expenses = [
@@ -362,7 +366,7 @@ function render() {
   if (!visible.length) {
     const noExpenses = monthExpenses.length === 0 && fixedTemplates.length === 0 && cardPurchases.length === 0;
     const noMatches = filtered.length === 0 && !noExpenses;
-    list.innerHTML = `<div class="empty-state"><div class="empty-illustration">${noExpenses ? '✳' : '⌕'}</div><h3>${noExpenses ? 'Tu lista empieza aquí' : noMatches ? 'No hay gastos para estos filtros' : 'No encontramos ese gasto'}</h3><p>${noExpenses ? 'Añade un gasto fijo, registra un gasto puntual o una compra con tarjeta.' : noMatches ? 'Prueba otro banco, tipo, frecuencia o tarjeta.' : 'Prueba otra búsqueda o cambia el filtro.'}</p>${noExpenses ? '<button class="primary-button" data-action="add-fixed"><span>＋</span> Añadir gasto fijo</button> <button class="cancel-button" data-action="add-variable">Registrar gasto variable</button> <button class="cancel-button" data-action="add-card">Compra con tarjeta</button>' : ''}</div>`;
+    list.innerHTML = `<div class="empty-state"><div class="empty-illustration">${noExpenses ? '✳' : '⌕'}</div><h3>${noExpenses ? 'Tu lista empieza aquí' : noMatches ? 'No hay gastos para estos filtros' : 'No encontramos ese gasto'}</h3><p>${noExpenses ? 'Añade un gasto fijo, registra un gasto puntual o una compra con tarjeta.' : noMatches ? 'Prueba otro banco, tipo, frecuencia o tarjeta.' : 'Prueba otra búsqueda o cambia el filtro.'}</p>${noExpenses ? '<button class="primary-button" data-action="add-fixed"><span>＋</span> Añadir gasto fijo</button> <button class="cancel-button" data-action="add-variable">Registrar gasto variable</button>' : ''}${noExpenses && cardSchemaAvailable ? ' <button class="cancel-button" data-action="add-card">Compra con tarjeta</button>' : ''}</div>`;
     return;
   }
   list.innerHTML = visible.map((item) => {
@@ -514,7 +518,10 @@ $('#expense-list').addEventListener('click', async (event) => {
   if (!button || busy) return;
   if (button.dataset.action === 'add-fixed') return openDialog();
   if (button.dataset.action === 'add-variable') return openDialog(null, 'variable');
-  if (button.dataset.action === 'add-card') return openDialog(null, 'credit_card');
+  if (button.dataset.action === 'add-card') {
+    if (cardSchemaAvailable) openDialog(null, 'credit_card');
+    return;
+  }
   const row = button.closest('[data-id]');
   const item = listExpenses.find((expense) => expense.id === row?.dataset.id && expense.source === row?.dataset.source);
   if (!item) return;
