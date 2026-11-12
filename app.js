@@ -375,7 +375,7 @@ function render() {
     const frequency = item.source === 'variable'
       ? 'Gasto variable'
       : item.source === 'credit_card'
-        ? `Cuota ${item.installment_number}/${item.installment_count}`
+        ? item.paid_in_full ? 'Pago total' : `Cuota ${item.installment_number}/${item.installment_count}`
         : item.frequency === 'annual'
           ? `Anual · ${monthName(item.annual_month)}`
           : item.frequency === 'quarterly'
@@ -384,7 +384,7 @@ function render() {
     const dateLabel = item.source === 'variable'
       ? expenseDateLabel(item.expense_date)
       : item.source === 'credit_card'
-        ? `${monthName(Number(item.payment_month.slice(5, 7)))} ${item.payment_month.slice(0, 4)}`
+        ? expenseDateLabel(item.purchase_date)
       : item.payment_month
         ? `${dayLabel(item.due_day)} · ${monthName(Number(item.payment_month.slice(5, 7)))} ${item.payment_month.slice(0, 4)}`
         : dayLabel(item.due_day);
@@ -392,7 +392,8 @@ function render() {
       ? '<span class="status-pill status-paid">✓ Pagado</span>'
       : `<button class="status-pill ${item.paid ? 'status-paid' : 'status-pending'}" data-action="toggle">${item.paid ? '✓ Pagado' : '◷ Programado'}</button>`;
     const institution = item.source === 'credit_card' ? item.card_name : item.bank || 'Sin asignar';
-    return `<article class="expense-row" data-id="${escapeHtml(item.id)}" data-source="${item.source}"><div class="expense-name"><span class="category-icon ${categoryClasses[category]}" aria-hidden="true">${categoryIcons[category]}</span><div><div class="expense-title">${escapeHtml(item.name)}</div><div class="expense-category-label">${escapeHtml(category)} · ${escapeHtml(institution)}</div></div></div><div class="row-meta"><div class="row-label">${item.source === 'variable' ? 'FECHA' : 'VENCIMIENTO'}</div><div class="row-value">${escapeHtml(dateLabel)}</div></div><div class="row-meta"><div class="row-label">TIPO</div><div class="row-value">${escapeHtml(frequency)}</div></div><div class="amount-meta"><div class="row-label">IMPORTE</div><div class="row-value amount-value">${money.format(item.amount)}</div></div>${status}<div class="row-actions"><button class="icon-button" data-action="edit" aria-label="Editar ${escapeHtml(item.name)}" title="Editar">✎</button><button class="icon-button" data-action="delete" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">×</button></div></article>`;
+    const dateMetaLabel = item.source === 'credit_card' ? 'FECHA DEL GASTO' : item.source === 'variable' ? 'FECHA' : 'VENCIMIENTO';
+    return `<article class="expense-row" data-id="${escapeHtml(item.id)}" data-source="${item.source}"><div class="expense-name"><span class="category-icon ${categoryClasses[category]}" aria-hidden="true">${categoryIcons[category]}</span><div><div class="expense-title">${escapeHtml(item.name)}</div><div class="expense-category-label">${escapeHtml(category)} · ${escapeHtml(institution)}</div></div></div><div class="row-meta"><div class="row-label">${dateMetaLabel}</div><div class="row-value">${escapeHtml(dateLabel)}</div></div><div class="row-meta"><div class="row-label">TIPO</div><div class="row-value">${escapeHtml(frequency)}</div></div><div class="amount-meta"><div class="row-label">IMPORTE</div><div class="row-value amount-value">${money.format(item.amount)}</div></div>${status}<div class="row-actions"><button class="icon-button" data-action="edit" aria-label="Editar ${escapeHtml(item.name)}" title="Editar">✎</button><button class="icon-button" data-action="delete" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">×</button></div></article>`;
   }).join('');
 }
 
@@ -411,12 +412,13 @@ function openDialog(item = null, source = 'fixed') {
   $('#expense-annual-month').value = item?.annual_month ?? viewedMonth.getMonth() + 1;
   const now = new Date();
   const defaultDate = viewedMonth.getFullYear() === now.getFullYear() && viewedMonth.getMonth() === now.getMonth() ? now : viewedMonth;
-  $('#expense-date').value = item?.expense_date || dateKey(defaultDate);
+  $('#expense-date').value = purchase?.purchase_date || item?.expense_date || dateKey(defaultDate);
   $('#expense-card-name').value = purchase?.card_name || '';
+  $('#card-full-payment').checked = Boolean(purchase?.paid_in_full);
   $('#expense-installment-count').value = purchase?.installment_count || 1;
   const defaultFirstInstallment = new Date(defaultDate.getFullYear(), defaultDate.getMonth() + 1, 1);
   $('#first-installment-month').value = purchase?.first_installment_month.slice(0, 7) || monthKey(defaultFirstInstallment).slice(0, 7);
-  $('#expense-date').disabled = source !== 'variable';
+  $('#expense-date').disabled = (source !== 'variable' && source !== 'credit_card') || (source === 'credit_card' && purchaseHasPaidInstallments);
   $('#expense-day').disabled = source !== 'fixed';
   $('#expense-frequency').disabled = source !== 'fixed';
   $('#expense-annual-month').disabled = source !== 'fixed';
@@ -427,12 +429,12 @@ function openDialog(item = null, source = 'fixed') {
   $('#card-edit-note').hidden = source !== 'credit_card' || !purchaseHasPaidInstallments;
   $('#expense-bank').disabled = source === 'credit_card';
   $('#expense-bank-field').hidden = source === 'credit_card';
-  $('#expense-date-field').hidden = source !== 'variable';
+  $('#expense-date-field').hidden = source !== 'variable' && source !== 'credit_card';
   $('#fixed-frequency-field').hidden = source !== 'fixed';
   $('#fixed-month-field').hidden = source !== 'fixed';
   $('#fixed-day-field').hidden = source !== 'fixed';
+  $('#card-full-payment-field').hidden = source !== 'credit_card';
   $('#card-name-field').hidden = source !== 'credit_card';
-  $('#installment-fields').hidden = source !== 'credit_card';
   updateFrequencyFields();
   $('#dialog-title').textContent = source === 'credit_card'
     ? item ? 'Edita la compra con tarjeta' : 'Registra una compra con tarjeta'
@@ -443,8 +445,19 @@ function openDialog(item = null, source = 'fixed') {
 function updateFrequencyFields() {
   const frequency = $('#expense-frequency').value;
   const source = $('#expense-source').value;
+  const isCard = source === 'credit_card';
+  const paidInFull = $('#card-full-payment').checked;
+  const purchase = cardPurchases.find((entry) => entry.id === $('#expense-id').value);
+  const purchaseHasPaidInstallments = Boolean(purchase?.paid_installments?.length);
   const scheduled = frequency !== 'monthly';
   $('#fixed-month-field').hidden = !scheduled || source !== 'fixed';
+  $('#expense-date-field').hidden = source !== 'variable' && !isCard;
+  $('#installment-fields').hidden = !isCard || paidInFull;
+  $('#expense-installment-count').disabled = !isCard || paidInFull || purchaseHasPaidInstallments;
+  $('#first-installment-month').disabled = !isCard || paidInFull || purchaseHasPaidInstallments;
+  $('#card-full-payment-field').hidden = !isCard;
+  $('#card-full-payment').disabled = !isCard || purchaseHasPaidInstallments;
+  $('#expense-date').disabled = (source !== 'variable' && !isCard) || (isCard && purchaseHasPaidInstallments);
   $('#annual-month-label').textContent = frequency === 'annual' ? 'Mes de pago' : 'Mes del primer pago';
   $('#expense-amount-label').textContent = source === 'credit_card' ? 'Importe total de la compra' : 'Importe';
   $('#expense-amount-unit').textContent = source === 'credit_card' ? '€ total' : source === 'variable' ? '€' : frequency === 'annual' ? '€ / año' : frequency === 'quarterly' ? '€ / trimestre' : '€ / mes';
@@ -454,6 +467,7 @@ $('#add-variable-expense').addEventListener('click', () => openDialog(null, 'var
 $('#add-card-expense').addEventListener('click', () => openDialog(null, 'credit_card'));
 $('#mobile-add')?.addEventListener('click', () => openDialog());
 $('#expense-frequency').addEventListener('change', updateFrequencyFields);
+$('#card-full-payment').addEventListener('change', updateFrequencyFields);
 $('#close-dialog').addEventListener('click', () => $('#expense-dialog').close());
 $('#cancel-dialog').addEventListener('click', () => $('#expense-dialog').close());
 $('#expense-dialog').addEventListener('click', (event) => { if (event.target === $('#expense-dialog')) $('#expense-dialog').close(); });
@@ -468,7 +482,8 @@ $('#expense-form').addEventListener('submit', async (event) => {
   let templateId = id;
   let error;
   if (source === 'credit_card') {
-    const installmentCount = Number($('#expense-installment-count').value);
+    const paidInFull = $('#card-full-payment').checked;
+    const installmentCount = paidInFull ? 1 : Number($('#expense-installment-count').value);
     if (installmentCount > Math.round(values.amount * 100)) {
       $('#expense-installment-count').setCustomValidity('Cada cuota debe ser de al menos 0,01 €.');
       $('#expense-installment-count').reportValidity();
@@ -482,7 +497,9 @@ $('#expense-form').addEventListener('submit', async (event) => {
       name: values.name,
       amount: values.amount,
       installment_count: installmentCount,
-      first_installment_month: `${$('#first-installment-month').value}-01`,
+      purchase_date: $('#expense-date').value,
+      first_installment_month: paidInFull ? `${$('#expense-date').value.slice(0, 7)}-01` : `${$('#first-installment-month').value}-01`,
+      paid_in_full: paidInFull,
       card_name: $('#expense-card-name').value.trim(),
       category: values.category,
       paid_installments: (existingPurchase?.paid_installments || []).filter((number) => number <= installmentCount),

@@ -49,13 +49,24 @@ create table if not exists public.credit_card_purchases (
   name text not null check (char_length(name) between 1 and 120),
   amount numeric(12,2) not null check (amount > 0),
   installment_count smallint not null check (installment_count between 1 and 120 and installment_count <= amount * 100),
+  purchase_date date not null,
   first_installment_month date not null check (extract(day from first_installment_month) = 1),
+  paid_in_full boolean not null default false,
   card_name text not null check (char_length(card_name) between 1 and 80),
   category text not null default 'Otros',
   paid_installments smallint[] not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.credit_card_purchases
+  add column if not exists purchase_date date,
+  add column if not exists paid_in_full boolean not null default false;
+update public.credit_card_purchases
+  set purchase_date = first_installment_month
+  where purchase_date is null;
+alter table public.credit_card_purchases
+  alter column purchase_date set not null;
 
 -- Compatibilidad con las tablas creadas antes de añadir gastos anuales.
 alter table public.fixed_expenses

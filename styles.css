@@ -45,8 +45,10 @@
 #fixed-month-field[hidden],#expense-date-field[hidden]{display:none}
 .csv-help{color:#85838c;font-size:11px;line-height:1.6;margin:-10px 0 12px}.csv-summary{font-size:11px;color:#6f6d76;line-height:1.5;margin-bottom:12px}.csv-preview-wrap{max-height:270px;overflow:auto;border:1px solid var(--line);border-radius:8px}.csv-preview{width:100%;border-collapse:collapse;font-size:11px}.csv-preview th,.csv-preview td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line)}.csv-preview th{position:sticky;top:0;background:#faf9fb;color:#777580;font-size:9px;letter-spacing:.4px}.csv-preview td:last-child,.csv-preview th:last-child{text-align:right;white-space:nowrap}.csv-preview td:nth-child(2){max-width:200px;overflow-wrap:anywhere}.csv-preview tr:last-child td{border-bottom:0}.csv-more{text-align:center!important;color:#8a8991}.csv-dialog[open]{display:block}.csv-dialog .dialog-actions{position:sticky;bottom:-26px;background:#fff;padding:12px 0 0}
 @media(min-width:1051px){.stats-grid{grid-template-columns:1.2fr repeat(4,minmax(0,1fr))}}
-#card-name-field[hidden],#installment-fields[hidden],#card-edit-note[hidden],#expense-bank-field[hidden]{display:none}
+#card-name-field[hidden],#installment-fields[hidden],#card-edit-note[hidden],#expense-bank-field[hidden],#fixed-frequency-field[hidden],#fixed-day-field[hidden],#card-full-payment-field[hidden]{display:none}
 .card-edit-note{margin:-4px 0 14px;color:#85838c;font-size:10px;line-height:1.5}
+.checkbox-field>span{display:flex;align-items:center;gap:8px}
+.checkbox-field input{accent-color:var(--purple)}
 .card-schema-notice{margin:12px 0 0;padding:11px 14px;border:1px solid #f0dfb8;border-radius:8px;background:#fff9eb;color:#80652d;font-size:11px;line-height:1.5}
 .card-schema-notice code{font-size:10px}
 .welcome-actions button:disabled{opacity:.55;cursor:not-allowed}
