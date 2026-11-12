@@ -6,6 +6,8 @@ const categoryClasses = { Vivienda: 'cat-vivienda', Suministros: 'cat-suministro
 const money = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
 const monthFormatter = new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric' });
 const monthName = (month) => new Intl.DateTimeFormat('es-ES', { month: 'long' }).format(new Date(2025, Number(month) - 1, 1));
+const dateKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+const expenseDateLabel = (value) => new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short' }).format(new Date(`${value}T00:00:00`));
 const isDueInMonth = (item, date) => {
   const month = date.getMonth() + 1;
   if (item.frequency === 'annual') return Number(item.annual_month) === month;
@@ -66,7 +68,10 @@ async function loadMonth() {
   }
   const { data, error } = await supabase.from('monthly_expenses').select('*').eq('month', month).order('due_day').order('name');
   if (error) return showError(error);
-  expenses = data || [];
+  const nextMonth = new Date(viewedMonth.getFullYear(), viewedMonth.getMonth() + 1, 1);
+  const { data: variableData, error: variableError } = await supabase.from('variable_expenses').select('*').gte('expense_date', month).lt('expense_date', dateKey(nextMonth)).order('expense_date').order('name');
+  if (variableError) return showError(variableError);
+  expenses = [...(data || []).map((item) => ({ ...item, source: 'fixed' })), ...(variableData || []).map((item) => ({ ...item, source: 'variable', frequency: 'variable', paid: true, due_day: new Date(`${item.expense_date}T00:00:00`).getDate() }))];
   render();
 }
 
@@ -87,12 +92,14 @@ function render() {
   $('#total-value').textContent = money.format(total);
   $('#pending-value').textContent = money.format(pendingTotal);
   $('#paid-value').textContent = money.format(paidTotal);
-  $('#total-foot').textContent = `${sorted.length} ${sorted.length === 1 ? 'gasto fijo' : 'gastos fijos'} este mes`;
-  $('#pending-foot').textContent = `${sorted.length - paidItems.length} ${sorted.length - paidItems.length === 1 ? 'recibo pendiente' : 'recibos pendientes'}`;
-  $('#paid-foot').textContent = `${paidItems.length} de ${sorted.length} recibos`;
+  $('#total-foot').textContent = `${sorted.length} ${sorted.length === 1 ? 'gasto' : 'gastos'} este mes`;
+  const fixedItems = sorted.filter((item) => item.source !== 'variable');
+  const pendingCount = fixedItems.filter((item) => !isPaid(item)).length;
+  $('#pending-foot').textContent = `${pendingCount} ${pendingCount === 1 ? 'recibo pendiente' : 'recibos pendientes'}`;
+  $('#paid-foot').textContent = `${paidItems.length} de ${sorted.length} gastos registrados`;
   $('#progress-label').textContent = `${progress} % pagado`;
   $('#progress-fill').style.width = `${progress}%`;
-  $('#footer-count').textContent = `${sorted.length} ${sorted.length === 1 ? 'gasto fijo' : 'gastos fijos'}`;
+  $('#footer-count').textContent = `${sorted.length} ${sorted.length === 1 ? 'gasto' : 'gastos'} este mes`;
   $('#today-label').textContent = new Intl.DateTimeFormat('es-ES', { weekday: 'short', day: 'numeric', month: 'short' }).format(new Date());
   const query = $('#search').value.trim().toLocaleLowerCase('es');
   const filter = $('#filter').value;
@@ -100,38 +107,53 @@ function render() {
   const list = $('#expense-list');
   if (!visible.length) {
     const noExpenses = sorted.length === 0;
-    list.innerHTML = `<div class="empty-state"><div class="empty-illustration">${noExpenses ? '✳' : '⌕'}</div><h3>${noExpenses ? 'Tu lista empieza aquí' : 'No encontramos ese gasto'}</h3><p>${noExpenses ? 'Añade tus pagos recurrentes y tendrás el mes más claro.' : 'Prueba otra búsqueda o cambia el filtro.'}</p>${noExpenses ? '<button class="primary-button" data-action="add"><span>＋</span> Añadir mi primer gasto</button>' : ''}</div>`;
+    list.innerHTML = `<div class="empty-state"><div class="empty-illustration">${noExpenses ? '✳' : '⌕'}</div><h3>${noExpenses ? 'Tu lista empieza aquí' : 'No encontramos ese gasto'}</h3><p>${noExpenses ? 'Añade un gasto fijo o registra un gasto puntual con su fecha.' : 'Prueba otra búsqueda o cambia el filtro.'}</p>${noExpenses ? '<button class="primary-button" data-action="add-fixed"><span>＋</span> Añadir gasto fijo</button> <button class="cancel-button" data-action="add-variable">Registrar gasto variable</button>' : ''}</div>`;
     return;
   }
   list.innerHTML = visible.map((item) => {
     const category = categoryIcons[item.category] ? item.category : 'Otros';
-    const frequency = item.frequency === 'annual' ? `Anual · ${monthName(item.annual_month)}` : item.frequency === 'quarterly' ? `Trimestral · desde ${monthName(item.annual_month)}` : 'Mensual';
-    return `<article class="expense-row" data-id="${escapeHtml(item.id)}"><div class="expense-name"><span class="category-icon ${categoryClasses[category]}" aria-hidden="true">${categoryIcons[category]}</span><div><div class="expense-title">${escapeHtml(item.name)}</div><div class="expense-category-label">${escapeHtml(category)}</div></div></div><div class="row-meta"><div class="row-label">VENCIMIENTO</div><div class="row-value">${dayLabel(item.due_day)}</div></div><div class="row-meta"><div class="row-label">FRECUENCIA</div><div class="row-value">${escapeHtml(frequency)}</div></div><div class="amount-meta"><div class="row-label">IMPORTE</div><div class="row-value amount-value">${money.format(item.amount)}</div></div><button class="status-pill ${item.paid ? 'status-paid' : 'status-pending'}" data-action="toggle">${item.paid ? '✓ Pagado' : '◷ Por pagar'}</button><div class="row-actions"><button class="icon-button" data-action="edit" aria-label="Editar ${escapeHtml(item.name)}" title="Editar">✎</button><button class="icon-button" data-action="delete" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">×</button></div></article>`;
+    const frequency = item.source === 'variable' ? 'Gasto variable' : item.frequency === 'annual' ? `Anual · ${monthName(item.annual_month)}` : item.frequency === 'quarterly' ? `Trimestral · desde ${monthName(item.annual_month)}` : 'Mensual';
+    const dateLabel = item.source === 'variable' ? expenseDateLabel(item.expense_date) : dayLabel(item.due_day);
+    const status = item.source === 'variable' ? '<span class="status-pill status-paid">✓ Registrado</span>' : `<button class="status-pill ${item.paid ? 'status-paid' : 'status-pending'}" data-action="toggle">${item.paid ? '✓ Pagado' : '◷ Por pagar'}</button>`;
+    return `<article class="expense-row" data-id="${escapeHtml(item.id)}" data-source="${item.source}"><div class="expense-name"><span class="category-icon ${categoryClasses[category]}" aria-hidden="true">${categoryIcons[category]}</span><div><div class="expense-title">${escapeHtml(item.name)}</div><div class="expense-category-label">${escapeHtml(category)}</div></div></div><div class="row-meta"><div class="row-label">${item.source === 'variable' ? 'FECHA' : 'VENCIMIENTO'}</div><div class="row-value">${escapeHtml(dateLabel)}</div></div><div class="row-meta"><div class="row-label">TIPO</div><div class="row-value">${escapeHtml(frequency)}</div></div><div class="amount-meta"><div class="row-label">IMPORTE</div><div class="row-value amount-value">${money.format(item.amount)}</div></div>${status}<div class="row-actions"><button class="icon-button" data-action="edit" aria-label="Editar ${escapeHtml(item.name)}" title="Editar">✎</button><button class="icon-button" data-action="delete" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">×</button></div></article>`;
   }).join('');
 }
 
-function openDialog(item = null) {
+function openDialog(item = null, source = 'fixed') {
   $('#expense-form').reset();
-  $('#expense-id').value = item?.fixed_expense_id || '';
+  $('#expense-id').value = source === 'variable' ? (item?.id || '') : (item?.fixed_expense_id || '');
+  $('#expense-source').value = source;
   $('#expense-name').value = item?.name || '';
   $('#expense-amount').value = item?.amount ?? '';
   $('#expense-day').value = item?.due_day ?? 1;
   $('#expense-category').value = item?.category || 'Vivienda';
   $('#expense-frequency').value = item?.frequency || 'monthly';
   $('#expense-annual-month').value = item?.annual_month ?? viewedMonth.getMonth() + 1;
+  const now = new Date();
+  const defaultDate = viewedMonth.getFullYear() === now.getFullYear() && viewedMonth.getMonth() === now.getMonth() ? now : viewedMonth;
+  $('#expense-date').value = item?.expense_date || dateKey(defaultDate);
+  $('#expense-date').disabled = source !== 'variable';
+  $('#expense-day').disabled = source === 'variable';
+  $('#expense-frequency').disabled = source === 'variable';
+  $('#expense-annual-month').disabled = source === 'variable';
+  $('#expense-date-field').hidden = source !== 'variable';
+  $('#fixed-frequency-field').hidden = source === 'variable';
+  $('#fixed-month-field').hidden = source === 'variable';
+  $('#fixed-day-field').hidden = source === 'variable';
   updateFrequencyFields();
-  $('#dialog-title').textContent = item ? 'Edita tu gasto' : 'Añade un gasto';
+  $('#dialog-title').textContent = item ? (source === 'variable' ? 'Edita tu gasto variable' : 'Edita tu gasto fijo') : (source === 'variable' ? 'Registra un gasto variable' : 'Añade un gasto fijo');
   $('#expense-dialog').showModal();
   $('#expense-name').focus();
 }
 function updateFrequencyFields() {
   const frequency = $('#expense-frequency').value;
   const scheduled = frequency !== 'monthly';
-  $('#annual-month-field').hidden = !scheduled;
+  $('#fixed-month-field').hidden = !scheduled || $('#expense-source').value === 'variable';
   $('#annual-month-label').textContent = frequency === 'annual' ? 'Mes de pago' : 'Mes del primer pago';
-  $('#expense-amount-unit').textContent = frequency === 'annual' ? '€ / año' : frequency === 'quarterly' ? '€ / trimestre' : '€ / mes';
+  $('#expense-amount-unit').textContent = $('#expense-source').value === 'variable' ? '€' : frequency === 'annual' ? '€ / año' : frequency === 'quarterly' ? '€ / trimestre' : '€ / mes';
 }
 $('#add-expense').addEventListener('click', () => openDialog());
+$('#add-variable-expense').addEventListener('click', () => openDialog(null, 'variable'));
 $('#mobile-add')?.addEventListener('click', () => openDialog());
 $('#expense-frequency').addEventListener('change', updateFrequencyFields);
 $('#close-dialog').addEventListener('click', () => $('#expense-dialog').close());
@@ -142,11 +164,18 @@ $('#expense-form').addEventListener('submit', async (event) => {
   if (busy) return;
   busy = true;
   const id = $('#expense-id').value;
+  const source = $('#expense-source').value;
   const frequency = $('#expense-frequency').value;
   const values = { user_id: currentUser.id, name: $('#expense-name').value.trim(), amount: Math.round(Number($('#expense-amount').value) * 100) / 100, due_day: Math.min(31, Math.max(1, Number($('#expense-day').value))), category: $('#expense-category').value, frequency, annual_month: frequency === 'annual' ? Number($('#expense-annual-month').value) : 1 };
   let templateId = id;
   let error;
-  if (id) {
+  if (source === 'variable') {
+    const variableValues = { user_id: currentUser.id, name: values.name, amount: values.amount, category: values.category, expense_date: $('#expense-date').value };
+    const result = id
+      ? await supabase.from('variable_expenses').update(variableValues).eq('id', id)
+      : await supabase.from('variable_expenses').insert(variableValues);
+    error = result.error;
+  } else if (id) {
     ({ error } = await supabase.from('fixed_expenses').update(values).eq('id', id));
     if (!error) ({ error } = await supabase.from('monthly_expenses').update({ name: values.name, amount: values.amount, due_day: values.due_day, category: values.category, frequency: values.frequency, annual_month: values.annual_month }).eq('fixed_expense_id', id).eq('month', monthKey()));
   } else {
@@ -165,19 +194,24 @@ $('#expense-form').addEventListener('submit', async (event) => {
 $('#expense-list').addEventListener('click', async (event) => {
   const button = event.target.closest('[data-action]');
   if (!button || busy) return;
-  if (button.dataset.action === 'add') return openDialog();
-  const item = expenses.find((expense) => expense.id === button.closest('[data-id]')?.dataset.id);
+  if (button.dataset.action === 'add-fixed') return openDialog();
+  if (button.dataset.action === 'add-variable') return openDialog(null, 'variable');
+  const row = button.closest('[data-id]');
+  const item = expenses.find((expense) => expense.id === row?.dataset.id && expense.source === row?.dataset.source);
   if (!item) return;
   busy = true;
   let error;
-  if (button.dataset.action === 'toggle') {
+  if (button.dataset.action === 'toggle' && item.source !== 'variable') {
     ({ error } = await supabase.from('monthly_expenses').update({ paid: !item.paid, paid_at: item.paid ? null : new Date().toISOString() }).eq('id', item.id));
   } else if (button.dataset.action === 'edit') {
     busy = false;
-    return openDialog(item);
-  } else if (button.dataset.action === 'delete' && window.confirm(`¿Eliminar «${item.name}» de tus gastos fijos? Se conservarán los meses anteriores.`)) {
-    ({ error } = await supabase.from('fixed_expenses').update({ active: false }).eq('id', item.fixed_expense_id));
-    if (!error) ({ error } = await supabase.from('monthly_expenses').delete().eq('id', item.id));
+    return openDialog(item, item.source);
+  } else if (button.dataset.action === 'delete' && window.confirm(`¿Eliminar «${item.name}»${item.source === 'variable' ? ' de tus gastos variables' : ' de tus gastos fijos'}?`)) {
+    if (item.source === 'variable') ({ error } = await supabase.from('variable_expenses').delete().eq('id', item.id));
+    else {
+      ({ error } = await supabase.from('fixed_expenses').update({ active: false }).eq('id', item.fixed_expense_id));
+      if (!error) ({ error } = await supabase.from('monthly_expenses').delete().eq('id', item.id));
+    }
   }
   busy = false;
   if (error) return showError(error);

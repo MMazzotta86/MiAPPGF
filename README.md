@@ -15,6 +15,8 @@ No subas `.env`. La clave `sb_publishable_...` es apta para el cliente siempre q
 
 Crea tu cuenta desde Supabase Dashboard > Authentication > Users y desactiva el registro público al terminar. La app inicia sesión con email y contraseña. Al abrir cada mes, guarda una copia de los gastos activos en `monthly_expenses`; los cambios a una plantilla no reescriben meses anteriores. Las tablas ya existentes en tu proyecto son `fixed_expenses` y `monthly_expenses`.
 
+Los gastos variables se registran con nombre, importe, categoría y fecha elegida; se guardan por separado en `variable_expenses` y aparecen en el mes de esa fecha.
+
 La conexión bancaria Tink se retiró del flujo porque no está habilitada para este uso personal. No se solicitan ni guardan credenciales bancarias.
 
 ## Gastos anuales

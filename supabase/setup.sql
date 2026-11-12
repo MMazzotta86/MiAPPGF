@@ -30,6 +30,16 @@ create table if not exists public.monthly_expenses (
   unique (user_id, fixed_expense_id, month)
 );
 
+create table if not exists public.variable_expenses (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 120),
+  amount numeric(12,2) not null check (amount > 0),
+  expense_date date not null,
+  category text not null default 'Otros',
+  created_at timestamptz not null default now()
+);
+
 -- Compatibilidad con las tablas creadas antes de añadir gastos anuales.
 alter table public.fixed_expenses
   add column if not exists frequency text not null default 'monthly',
@@ -50,9 +60,12 @@ alter table public.monthly_expenses
 
 create index if not exists monthly_expenses_user_month_idx
   on public.monthly_expenses (user_id, month);
+create index if not exists variable_expenses_user_date_idx
+  on public.variable_expenses (user_id, expense_date);
 
 alter table public.fixed_expenses enable row level security;
 alter table public.monthly_expenses enable row level security;
+alter table public.variable_expenses enable row level security;
 
 drop policy if exists "owner manages fixed expenses" on public.fixed_expenses;
 create policy "owner manages fixed expenses" on public.fixed_expenses
@@ -66,5 +79,12 @@ create policy "owner manages monthly expenses" on public.monthly_expenses
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "owner manages variable expenses" on public.variable_expenses;
+create policy "owner manages variable expenses" on public.variable_expenses
+  for all to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
 grant select, insert, update, delete on public.fixed_expenses to authenticated;
 grant select, insert, update, delete on public.monthly_expenses to authenticated;
+grant select, insert, update, delete on public.variable_expenses to authenticated;
