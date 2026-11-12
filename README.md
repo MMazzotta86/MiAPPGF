@@ -17,7 +17,11 @@ Crea tu cuenta desde Supabase Dashboard > Authentication > Users y desactiva el 
 
 Los gastos variables se registran con nombre, importe, categoría y fecha elegida; se guardan por separado en `variable_expenses` y aparecen en el mes de esa fecha.
 
-La conexión bancaria Tink se retiró del flujo porque no está habilitada para este uso personal. No se solicitan ni guardan credenciales bancarias.
+También puedes importar extractos bancarios en CSV de Revolut, Santander o ING desde **Importar extracto CSV**. La app procesa el archivo en el navegador, muestra una vista previa y guarda como gastos variables los movimientos con importe negativo; los ingresos y las filas que no reconoce se omiten. No se guarda el archivo ni se necesitan credenciales bancarias. No importes dos veces el mismo extracto, porque podría duplicar movimientos. Si un CSV no se reconoce, exporta con encabezados de fecha, concepto/descripción e importe.
+
+En el resumen mensual, **Gastos del mes** suma los gastos fijos marcados como pagados y todos los gastos variables registrados. Los otros indicadores muestran los gastos por pagar, los fijos pagados y los variables pagados.
+
+La conexión bancaria directa Tink no está habilitada para este uso personal. No se solicitan ni guardan credenciales bancarias.
 
 ## Gastos anuales
 

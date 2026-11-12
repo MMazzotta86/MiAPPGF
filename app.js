@@ -85,18 +85,25 @@ function render() {
   $('#month-label').textContent = label.charAt(0).toLocaleUpperCase('es-ES') + label.slice(1);
   const sorted = [...expenses].sort((a, b) => a.due_day - b.due_day || a.name.localeCompare(b.name, 'es'));
   const total = sorted.reduce((sum, item) => sum + Number(item.amount), 0);
-  const paidItems = sorted.filter(isPaid);
-  const paidTotal = paidItems.reduce((sum, item) => sum + Number(item.amount), 0);
-  const pendingTotal = total - paidTotal;
-  const progress = total ? Math.round(paidTotal / total * 100) : 0;
-  $('#total-value').textContent = money.format(total);
-  $('#pending-value').textContent = money.format(pendingTotal);
-  $('#paid-value').textContent = money.format(paidTotal);
-  $('#total-foot').textContent = `${sorted.length} ${sorted.length === 1 ? 'gasto' : 'gastos'} este mes`;
   const fixedItems = sorted.filter((item) => item.source !== 'variable');
-  const pendingCount = fixedItems.filter((item) => !isPaid(item)).length;
-  $('#pending-foot').textContent = `${pendingCount} ${pendingCount === 1 ? 'recibo pendiente' : 'recibos pendientes'}`;
-  $('#paid-foot').textContent = `${paidItems.length} de ${sorted.length} gastos registrados`;
+  const variableItems = sorted.filter((item) => item.source === 'variable');
+  const fixedPaidItems = fixedItems.filter(isPaid);
+  const fixedPendingItems = fixedItems.filter((item) => !isPaid(item));
+  const fixedPaidTotal = fixedPaidItems.reduce((sum, item) => sum + Number(item.amount), 0);
+  const variablePaidTotal = variableItems.reduce((sum, item) => sum + Number(item.amount), 0);
+  const fixedPaidLabel = `${fixedPaidItems.length} ${fixedPaidItems.length === 1 ? 'fijo pagado' : 'fijos pagados'}`;
+  const variablePaidLabel = `${variableItems.length} ${variableItems.length === 1 ? 'variable pagado' : 'variables pagados'}`;
+  const paidTotal = fixedPaidTotal + variablePaidTotal;
+  const pendingTotal = fixedPendingItems.reduce((sum, item) => sum + Number(item.amount), 0);
+  const progress = total ? Math.round(paidTotal / total * 100) : 0;
+  $('#total-value').textContent = money.format(paidTotal);
+  $('#pending-value').textContent = money.format(pendingTotal);
+  $('#paid-value').textContent = money.format(fixedPaidTotal);
+  $('#variable-paid-value').textContent = money.format(variablePaidTotal);
+  $('#total-foot').textContent = `${fixedPaidLabel} + ${variablePaidLabel}`;
+  $('#pending-foot').textContent = `${fixedPendingItems.length} ${fixedPendingItems.length === 1 ? 'fijo' : 'fijos'} por pagar`;
+  $('#paid-foot').textContent = `${fixedPaidItems.length} de ${fixedItems.length} gastos fijos pagados`;
+  $('#variable-paid-foot').textContent = `${variableItems.length} ${variableItems.length === 1 ? 'gasto variable registrado' : 'gastos variables registrados'}`;
   $('#progress-label').textContent = `${progress} % pagado`;
   $('#progress-fill').style.width = `${progress}%`;
   $('#footer-count').textContent = `${sorted.length} ${sorted.length === 1 ? 'gasto' : 'gastos'} este mes`;
@@ -223,6 +230,132 @@ $('#next-month').addEventListener('click', async () => { viewedMonth.setMonth(vi
 $('#this-month').addEventListener('click', async () => { viewedMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1); await loadMonth(); });
 $('#search').addEventListener('input', render);
 $('#filter').addEventListener('change', render);
+
+// Bank statements are handled locally in the browser. No bank credentials or
+// original statement files are uploaded; only the reviewed expense rows go to Supabase.
+const csvDialog = $('#csv-dialog');
+let csvImportRows = [];
+const normalizeHeader = (value) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es').replace(/[\s_\-]+/g, ' ').trim();
+function parseCsv(text) {
+  const firstLine = text.split(/\r?\n/, 1)[0] || '';
+  const delimiter = [';', ',', '\t'].sort((a, b) => firstLine.split(b).length - firstLine.split(a).length)[0];
+  const rows = [];
+  let row = [], cell = '', quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (char === '"') {
+      if (quoted && text[i + 1] === '"') { cell += '"'; i += 1; }
+      else quoted = !quoted;
+    } else if (char === delimiter && !quoted) { row.push(cell); cell = ''; }
+    else if ((char === '\n' || char === '\r') && !quoted) {
+      if (char === '\r' && text[i + 1] === '\n') i += 1;
+      row.push(cell); cell = '';
+      if (row.some((value) => value.trim())) rows.push(row);
+      row = [];
+    } else cell += char;
+  }
+  if (cell || row.length) { row.push(cell); if (row.some((value) => value.trim())) rows.push(row); }
+  const dateAliases = ['fecha', 'date', 'completed date', 'booking date', 'transaction date', 'started date', 'fecha operacion', 'fecha valor'];
+  const nameAliases = ['concepto', 'descripcion', 'description', 'details', 'merchant', 'counterparty', 'payee', 'beneficiario', 'nombre'];
+  const amountAliases = ['importe', 'amount', 'cantidad', 'transaction amount', 'importe eur', 'amount eur'];
+  let headerIndex = -1, headers = [];
+  for (let i = 0; i < Math.min(rows.length, 12); i += 1) {
+    const candidate = rows[i].map((value) => normalizeHeader(value.replace(/^\uFEFF/, '')));
+    if (candidate.some((value) => dateAliases.includes(value)) && candidate.some((value) => amountAliases.includes(value) || ['debe', 'debit', 'withdrawal', 'cargo'].includes(value))) {
+      headerIndex = i; headers = candidate; break;
+    }
+  }
+  if (headerIndex < 0) throw new Error('No encuentro columnas reconocibles de fecha e importe. Usa un CSV con encabezados como Fecha, Concepto e Importe.');
+  const dateIndex = dateAliases.map((alias) => headers.indexOf(alias)).find((index) => index >= 0);
+  const nameIndex = nameAliases.map((alias) => headers.indexOf(alias)).find((index) => index >= 0);
+  let amountIndex = headers.findIndex((value) => amountAliases.includes(value));
+  let debitMode = false;
+  if (amountIndex < 0) { amountIndex = headers.findIndex((value) => ['debe', 'debit', 'withdrawal', 'cargo'].includes(value)); debitMode = true; }
+  const parseDate = (value) => {
+    const raw = String(value || '').trim();
+    const iso = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    const local = raw.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})/);
+    if (iso || local) {
+      const [, year, month, day] = iso ? [null, iso[1], iso[2], iso[3]] : [null, local[3], local[2], local[1]];
+      const date = new Date(Number(year), Number(month) - 1, Number(day));
+      if (date.getFullYear() !== Number(year) || date.getMonth() + 1 !== Number(month) || date.getDate() !== Number(day)) return '';
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+    return '';
+  };
+  const parseAmount = (value) => {
+    let raw = String(value || '').replace(/[\s€$£]/g, '');
+    if (!raw) return NaN;
+    const comma = raw.lastIndexOf(','), dot = raw.lastIndexOf('.');
+    if (comma > dot) raw = raw.replace(/\./g, '').replace(',', '.');
+    else if (dot > comma) raw = raw.replace(/,/g, '');
+    else if (comma >= 0) raw = raw.replace(',', '.');
+    return Number(raw);
+  };
+  const categoryFor = (name) => {
+    const value = normalizeHeader(name);
+    if (/alquiler|hipoteca|vivienda/.test(value)) return 'Vivienda';
+    if (/luz|agua|gas|electric|internet|telefono/.test(value)) return 'Suministros';
+    if (/metro|taxi|transporte|parking|gasolin|tren|uber|cabify/.test(value)) return 'Transporte';
+    if (/netflix|spotify|suscrip|prime|icloud/.test(value)) return 'Suscripciones';
+    if (/seguro|mutua/.test(value)) return 'Seguros';
+    return 'Otros';
+  };
+  const output = [];
+  for (const values of rows.slice(headerIndex + 1)) {
+    const amount = parseAmount(values[amountIndex]);
+    const date = parseDate(values[dateIndex]);
+    const name = String(values[nameIndex] || '').trim().slice(0, 120);
+    if (!date || !name || !Number.isFinite(amount) || amount === 0) continue;
+    if (!debitMode && amount > 0) continue; // Ignore income and refunds.
+    output.push({ name, amount: Math.round(Math.abs(amount) * 100) / 100, expense_date: date, category: categoryFor(name) });
+  }
+  return output;
+}
+
+$('#import-bank-csv').addEventListener('click', () => $('#bank-csv-file').click());
+$('#bank-csv-file').addEventListener('change', async (event) => {
+  const file = event.target.files?.[0];
+  event.target.value = '';
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) return window.alert('El CSV supera el límite de 5 MB. Exporta un periodo más corto.');
+  try {
+    const text = (await file.text()).replace(/^\uFEFF/, '');
+    csvImportRows = parseCsv(text);
+    if (!csvImportRows.length) return window.alert('No se encontraron gastos. Se importan importes negativos; los ingresos y las filas incompletas se omiten.');
+    if (csvImportRows.length > 1000) return window.alert('Este extracto contiene más de 1.000 gastos. Divide el CSV en periodos más pequeños para importarlo con seguridad.');
+    $('#csv-summary').textContent = `${csvImportRows.length} gastos encontrados en «${file.name}». Revisa la vista previa antes de importarlos. No vuelvas a importar el mismo extracto para evitar duplicados.`;
+    $('#csv-preview-body').innerHTML = csvImportRows.slice(0, 8).map((item) => `<tr><td>${escapeHtml(expenseDateLabel(item.expense_date))}</td><td>${escapeHtml(item.name)}</td><td>${money.format(item.amount)}</td></tr>`).join('');
+    if (csvImportRows.length > 8) $('#csv-preview-body').insertAdjacentHTML('beforeend', `<tr><td colspan="3" class="csv-more">y ${csvImportRows.length - 8} movimientos m&aacute;s</td></tr>`);
+    $('#confirm-csv-import').disabled = false;
+    csvDialog.showModal();
+  } catch (error) {
+    window.alert(error.message || 'No se pudo leer el archivo CSV.');
+  }
+});
+const closeCsvDialog = () => { csvDialog.close(); csvImportRows = []; $('#csv-preview-body').replaceChildren(); };
+$('#close-csv-dialog').addEventListener('click', closeCsvDialog);
+$('#cancel-csv-import').addEventListener('click', closeCsvDialog);
+$('#confirm-csv-import').addEventListener('click', async () => {
+  if (busy || !currentUser || !csvImportRows.length) return;
+  busy = true;
+  const button = $('#confirm-csv-import');
+  button.disabled = true;
+  button.textContent = 'Importando…';
+  const latest = csvImportRows.reduce((max, item) => item.expense_date > max ? item.expense_date : max, csvImportRows[0].expense_date);
+  const rows = csvImportRows.map((item) => ({ ...item, user_id: currentUser.id }));
+  const { error } = await supabase.from('variable_expenses').insert(rows);
+  busy = false;
+  button.disabled = false;
+  button.textContent = 'Importar gastos';
+  if (error) { console.error(error); window.alert(`No se pudo importar el extracto: ${error.message || 'error de conexión'}`); return; }
+  const count = csvImportRows.length;
+  closeCsvDialog();
+  window.alert(`Se han importado ${count} gastos variables.`);
+  const latestDate = new Date(`${latest}T00:00:00`);
+  viewedMonth = new Date(latestDate.getFullYear(), latestDate.getMonth(), 1);
+  await loadMonth();
+});
 
 const { data: { user } } = await supabase.auth.getUser();
 if (user) await showApp(user);

@@ -9,4 +9,4 @@ El esquema inicial está en [`supabase/setup.sql`](./supabase/setup.sql). Está 
 
 `fixed_expenses` representa los gastos recurrentes. `monthly_expenses` es el histórico mensual con copia del nombre, importe, día de vencimiento y estado de pago; así los cambios futuros no reescriben meses anteriores.
 
-La integración Tink anterior no es adecuada para uso personal. No introduzcas credenciales bancarias; se puede valorar importar extractos CSV más adelante.
+La conexión bancaria directa Tink no está habilitada para uso personal. La app permite importar extractos CSV: el archivo se interpreta localmente y solo se guardan los movimientos que confirmes en la vista previa. Las filas se insertan en `variable_expenses` bajo el usuario autenticado y las protege la política RLS existente.
