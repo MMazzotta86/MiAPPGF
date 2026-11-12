@@ -42,3 +42,4 @@
   .category-icon{width:32px;height:32px;flex:0 0 32px}
   .expense-title{overflow-wrap:anywhere}
 }
+#annual-month-field[hidden]{display:none}

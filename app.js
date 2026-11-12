@@ -5,6 +5,7 @@ const categoryIcons = { Vivienda: '⌂', Suministros: 'ϟ', Transporte: '↗', S
 const categoryClasses = { Vivienda: 'cat-vivienda', Suministros: 'cat-suministros', Transporte: 'cat-transporte', Suscripciones: 'cat-suscripciones', Seguros: 'cat-seguros', Otros: 'cat-otros' };
 const money = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
 const monthFormatter = new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric' });
+const monthName = (month) => new Intl.DateTimeFormat('es-ES', { month: 'long' }).format(new Date(2025, Number(month) - 1, 1));
 const $ = (selector) => document.querySelector(selector);
 let currentUser = null;
 let expenses = [];
@@ -48,11 +49,14 @@ async function loadMonth() {
   if (month >= currentMonth) {
     const { data: templates, error: templateError } = await supabase.from('fixed_expenses').select('*').eq('active', true).order('created_at');
     if (templateError) return showError(templateError);
-    const { error: seedError } = await supabase.from('monthly_expenses').upsert(
-      templates.map((item) => ({ user_id: currentUser.id, fixed_expense_id: item.id, month, name: item.name, amount: item.amount, due_day: item.due_day, category: item.category })),
-      { onConflict: 'user_id,fixed_expense_id,month', ignoreDuplicates: true },
-    );
-    if (seedError) return showError(seedError);
+    const dueTemplates = templates.filter((item) => item.frequency !== 'annual' || Number(item.annual_month) === viewedMonth.getMonth() + 1);
+    if (dueTemplates.length) {
+      const { error: seedError } = await supabase.from('monthly_expenses').upsert(
+        dueTemplates.map((item) => ({ user_id: currentUser.id, fixed_expense_id: item.id, month, name: item.name, amount: item.amount, due_day: item.due_day, category: item.category, frequency: item.frequency, annual_month: item.annual_month })),
+        { onConflict: 'user_id,fixed_expense_id,month', ignoreDuplicates: true },
+      );
+      if (seedError) return showError(seedError);
+    }
   }
   const { data, error } = await supabase.from('monthly_expenses').select('*').eq('month', month).order('due_day').order('name');
   if (error) return showError(error);
@@ -95,7 +99,8 @@ function render() {
   }
   list.innerHTML = visible.map((item) => {
     const category = categoryIcons[item.category] ? item.category : 'Otros';
-    return `<article class="expense-row" data-id="${escapeHtml(item.id)}"><div class="expense-name"><span class="category-icon ${categoryClasses[category]}">${categoryIcons[category]}</span><div><div class="expense-title">${escapeHtml(item.name)}</div><div class="expense-category-label">${escapeHtml(category)}</div></div></div><div class="row-meta"><div class="row-label">VENCIMIENTO</div><div class="row-value">${dayLabel(item.due_day)}</div></div><div class="row-meta"><div class="row-label">FRECUENCIA</div><div class="row-value">Mensual</div></div><div class="amount-meta"><div class="row-label">IMPORTE</div><div class="row-value amount-value">${money.format(item.amount)}</div></div><button class="status-pill ${item.paid ? 'status-paid' : 'status-pending'}" data-action="toggle">${item.paid ? '✓ Pagado' : '◷ Por pagar'}</button><div class="row-actions"><button class="icon-button" data-action="edit" aria-label="Editar ${escapeHtml(item.name)}" title="Editar">✎</button><button class="icon-button" data-action="delete" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">×</button></div></article>`;
+    const frequency = item.frequency === 'annual' ? `Anual · ${monthName(item.annual_month)}` : 'Mensual';
+    return `<article class="expense-row" data-id="${escapeHtml(item.id)}"><div class="expense-name"><span class="category-icon ${categoryClasses[category]}" aria-hidden="true">${categoryIcons[category]}</span><div><div class="expense-title">${escapeHtml(item.name)}</div><div class="expense-category-label">${escapeHtml(category)}</div></div></div><div class="row-meta"><div class="row-label">VENCIMIENTO</div><div class="row-value">${dayLabel(item.due_day)}</div></div><div class="row-meta"><div class="row-label">FRECUENCIA</div><div class="row-value">${escapeHtml(frequency)}</div></div><div class="amount-meta"><div class="row-label">IMPORTE</div><div class="row-value amount-value">${money.format(item.amount)}</div></div><button class="status-pill ${item.paid ? 'status-paid' : 'status-pending'}" data-action="toggle">${item.paid ? '✓ Pagado' : '◷ Por pagar'}</button><div class="row-actions"><button class="icon-button" data-action="edit" aria-label="Editar ${escapeHtml(item.name)}" title="Editar">✎</button><button class="icon-button" data-action="delete" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">×</button></div></article>`;
   }).join('');
 }
 
@@ -106,12 +111,21 @@ function openDialog(item = null) {
   $('#expense-amount').value = item?.amount ?? '';
   $('#expense-day').value = item?.due_day ?? 1;
   $('#expense-category').value = item?.category || 'Vivienda';
+  $('#expense-frequency').value = item?.frequency || 'monthly';
+  $('#expense-annual-month').value = item?.annual_month ?? viewedMonth.getMonth() + 1;
+  updateFrequencyFields();
   $('#dialog-title').textContent = item ? 'Edita tu gasto' : 'Añade un gasto';
   $('#expense-dialog').showModal();
   $('#expense-name').focus();
 }
+function updateFrequencyFields() {
+  const annual = $('#expense-frequency').value === 'annual';
+  $('#annual-month-field').hidden = !annual;
+  $('#expense-amount-unit').textContent = annual ? '€ / año' : '€ / mes';
+}
 $('#add-expense').addEventListener('click', () => openDialog());
 $('#mobile-add')?.addEventListener('click', () => openDialog());
+$('#expense-frequency').addEventListener('change', updateFrequencyFields);
 $('#close-dialog').addEventListener('click', () => $('#expense-dialog').close());
 $('#cancel-dialog').addEventListener('click', () => $('#expense-dialog').close());
 $('#expense-dialog').addEventListener('click', (event) => { if (event.target === $('#expense-dialog')) $('#expense-dialog').close(); });
@@ -120,17 +134,19 @@ $('#expense-form').addEventListener('submit', async (event) => {
   if (busy) return;
   busy = true;
   const id = $('#expense-id').value;
-  const values = { user_id: currentUser.id, name: $('#expense-name').value.trim(), amount: Math.round(Number($('#expense-amount').value) * 100) / 100, due_day: Math.min(31, Math.max(1, Number($('#expense-day').value))), category: $('#expense-category').value };
+  const frequency = $('#expense-frequency').value;
+  const values = { user_id: currentUser.id, name: $('#expense-name').value.trim(), amount: Math.round(Number($('#expense-amount').value) * 100) / 100, due_day: Math.min(31, Math.max(1, Number($('#expense-day').value))), category: $('#expense-category').value, frequency, annual_month: frequency === 'annual' ? Number($('#expense-annual-month').value) : 1 };
   let templateId = id;
   let error;
   if (id) {
     ({ error } = await supabase.from('fixed_expenses').update(values).eq('id', id));
-    if (!error) ({ error } = await supabase.from('monthly_expenses').update({ name: values.name, amount: values.amount, due_day: values.due_day, category: values.category }).eq('fixed_expense_id', id).eq('month', monthKey()));
+    if (!error) ({ error } = await supabase.from('monthly_expenses').update({ name: values.name, amount: values.amount, due_day: values.due_day, category: values.category, frequency: values.frequency, annual_month: values.annual_month }).eq('fixed_expense_id', id).eq('month', monthKey()));
   } else {
     const result = await supabase.from('fixed_expenses').insert(values).select('id').single();
     error = result.error;
     templateId = result.data?.id;
-    if (!error) ({ error } = await supabase.from('monthly_expenses').insert({ user_id: currentUser.id, fixed_expense_id: templateId, month: monthKey(), name: values.name, amount: values.amount, due_day: values.due_day, category: values.category }));
+    const isDueThisMonth = values.frequency !== 'annual' || values.annual_month === viewedMonth.getMonth() + 1;
+    if (!error && isDueThisMonth) ({ error } = await supabase.from('monthly_expenses').insert({ user_id: currentUser.id, fixed_expense_id: templateId, month: monthKey(), name: values.name, amount: values.amount, due_day: values.due_day, category: values.category, frequency: values.frequency, annual_month: values.annual_month }));
   }
   busy = false;
   if (error) return showError(error);

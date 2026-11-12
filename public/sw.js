@@ -1,4 +1,4 @@
-const CACHE_NAME = 'fijo-shell-v1';
+const CACHE_NAME = 'fijo-shell-v2';
 const APP_SHELL = ['/', '/manifest.webmanifest', '/icons/icon.svg'];
 
 self.addEventListener('install', (event) => {

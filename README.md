@@ -1,6 +1,6 @@
 ﻿# Fijo: gastos mensuales
 
-App personal de gastos fijos con inicio de sesión y almacenamiento histórico en Supabase.
+App personal de gastos fijos mensuales y anuales con inicio de sesión y almacenamiento histórico en Supabase.
 
 ## Ejecutar localmente
 
@@ -16,6 +16,10 @@ No subas `.env`. La clave `sb_publishable_...` es apta para el cliente siempre q
 Crea tu cuenta desde Supabase Dashboard > Authentication > Users y desactiva el registro público al terminar. La app inicia sesión con email y contraseña. Al abrir cada mes, guarda una copia de los gastos activos en `monthly_expenses`; los cambios a una plantilla no reescriben meses anteriores. Las tablas ya existentes en tu proyecto son `fixed_expenses` y `monthly_expenses`.
 
 La conexión bancaria Tink se retiró del flujo porque no está habilitada para este uso personal. No se solicitan ni guardan credenciales bancarias.
+
+## Gastos anuales
+
+Al añadir un gasto, selecciona la frecuencia **Anual**, indica el importe total que pagas en el año y el mes y día del cobro. El gasto aparecerá únicamente en ese mes y se guardará como un recibo anual en el historial. La base de datos distingue frecuencia y mes de vencimiento en las plantillas y en las copias mensuales.
 
 ## Uso desde el móvil
 

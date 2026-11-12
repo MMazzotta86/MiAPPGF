@@ -5,6 +5,8 @@ create table if not exists public.fixed_expenses (
   name text not null check (char_length(name) between 1 and 120),
   amount numeric(12,2) not null check (amount > 0),
   due_day smallint not null check (due_day between 1 and 31),
+  frequency text not null default 'monthly' check (frequency in ('monthly', 'annual')),
+  annual_month smallint not null default 1 check (annual_month between 1 and 12),
   category text not null default 'Otros',
   active boolean not null default true,
   created_at timestamptz not null default now(),
@@ -19,12 +21,32 @@ create table if not exists public.monthly_expenses (
   name text not null,
   amount numeric(12,2) not null check (amount > 0),
   due_day smallint not null check (due_day between 1 and 31),
+  frequency text not null default 'monthly' check (frequency in ('monthly', 'annual')),
+  annual_month smallint not null default 1 check (annual_month between 1 and 12),
   category text not null,
   paid boolean not null default false,
   paid_at timestamptz,
   created_at timestamptz not null default now(),
   unique (user_id, fixed_expense_id, month)
 );
+
+-- Compatibilidad con las tablas creadas antes de añadir gastos anuales.
+alter table public.fixed_expenses
+  add column if not exists frequency text not null default 'monthly',
+  add column if not exists annual_month smallint not null default 1;
+alter table public.fixed_expenses
+  drop constraint if exists fixed_expenses_frequency_check,
+  add constraint fixed_expenses_frequency_check check (frequency in ('monthly', 'annual')),
+  drop constraint if exists fixed_expenses_annual_month_check,
+  add constraint fixed_expenses_annual_month_check check (annual_month between 1 and 12);
+alter table public.monthly_expenses
+  add column if not exists frequency text not null default 'monthly',
+  add column if not exists annual_month smallint not null default 1;
+alter table public.monthly_expenses
+  drop constraint if exists monthly_expenses_frequency_check,
+  add constraint monthly_expenses_frequency_check check (frequency in ('monthly', 'annual')),
+  drop constraint if exists monthly_expenses_annual_month_check,
+  add constraint monthly_expenses_annual_month_check check (annual_month between 1 and 12);
 
 create index if not exists monthly_expenses_user_month_idx
   on public.monthly_expenses (user_id, month);
