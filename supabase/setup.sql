@@ -53,6 +53,18 @@ create table if not exists public.income_transactions (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.bank_transfers (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 120),
+  amount numeric(12,2) not null check (amount > 0),
+  transfer_date date not null,
+  from_bank text not null check (from_bank in ('Santander', 'ING', 'Revolut')),
+  to_bank text not null check (to_bank in ('Santander', 'ING', 'Revolut')),
+  created_at timestamptz not null default now(),
+  check (from_bank <> to_bank)
+);
+
 create table if not exists public.credit_card_purchases (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -128,6 +140,8 @@ create index if not exists variable_expenses_user_date_idx
   on public.variable_expenses (user_id, expense_date);
 create index if not exists income_transactions_user_date_idx
   on public.income_transactions (user_id, income_date);
+create index if not exists bank_transfers_user_date_idx
+  on public.bank_transfers (user_id, transfer_date);
 create index if not exists credit_card_purchases_user_first_month_idx
   on public.credit_card_purchases (user_id, first_installment_month);
 
@@ -135,6 +149,7 @@ alter table public.fixed_expenses enable row level security;
 alter table public.monthly_expenses enable row level security;
 alter table public.variable_expenses enable row level security;
 alter table public.income_transactions enable row level security;
+alter table public.bank_transfers enable row level security;
 alter table public.credit_card_purchases enable row level security;
 
 drop policy if exists "owner manages fixed expenses" on public.fixed_expenses;
@@ -161,6 +176,12 @@ create policy "owner manages income transactions" on public.income_transactions
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "owner manages bank transfers" on public.bank_transfers;
+create policy "owner manages bank transfers" on public.bank_transfers
+  for all to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
 drop policy if exists "owner manages credit card purchases" on public.credit_card_purchases;
 create policy "owner manages credit card purchases" on public.credit_card_purchases
   for all to authenticated
@@ -171,6 +192,7 @@ grant select, insert, update, delete on public.fixed_expenses to authenticated;
 grant select, insert, update, delete on public.monthly_expenses to authenticated;
 grant select, insert, update, delete on public.variable_expenses to authenticated;
 grant select, insert, update, delete on public.income_transactions to authenticated;
+grant select, insert, update, delete on public.bank_transfers to authenticated;
 grant select, insert, update, delete on public.credit_card_purchases to authenticated;
 
 notify pgrst, 'reload schema';

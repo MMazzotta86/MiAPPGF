@@ -25,7 +25,9 @@ Al registrar o editar un gasto, selecciona **Santander**, **ING** o **Revolut**.
 
 Registra también ingresos con su fecha y banco; las compras con tarjeta también se pueden asociar a su banco emisor. En **Movimientos bancarios** puedes consultar ingresos y gastos por banco o todos juntos, ver ingresos y balance en el resumen y ordenar los movimientos por fecha o importe. Las compras con tarjeta que ya existían conservan el banco **Sin asignar** hasta que se editen.
 
-Para activar estas funciones en una base de datos existente, ejecuta `supabase/setup.sql` en Supabase > SQL Editor. El esquema añade bancos a los gastos y crea la tabla protegida `income_transactions`.
+Las transferencias entre bancos propios se registran aparte: reducen el saldo neto registrado del banco de origen y aumentan el del banco de destino, sin contarse como ingreso ni como gasto. Los saldos acumulados se calculan con los movimientos guardados en la app; no representan el saldo real de la cuenta si no se ha registrado su saldo inicial.
+
+Para activar estas funciones en una base de datos existente, ejecuta `supabase/setup.sql` en Supabase > SQL Editor. El esquema crea las tablas protegidas `income_transactions` y `bank_transfers`.
 
 La conexión bancaria directa Tink no está habilitada para este uso personal. No se solicitan ni guardan credenciales bancarias.
 

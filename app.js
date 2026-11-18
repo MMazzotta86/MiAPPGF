@@ -29,9 +29,14 @@ let occurrenceSnapshots = [];
 let yearFixedSnapshots = [];
 let yearVariableExpenses = [];
 let yearIncomeTransactions = [];
+let allMonthlyExpenses = [];
+let allVariableExpenses = [];
+let allIncomeTransactions = [];
+let bankTransfers = [];
 let cardPurchases = [];
 let cardSchemaAvailable = false;
 let incomeSchemaAvailable = false;
+let transferSchemaAvailable = false;
 let listExpenses = [];
 let viewedMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let busy = false;
@@ -59,6 +64,8 @@ function createBankField(id, labelText, parent, before) {
   return select;
 }
 const expenseBankSelect = createBankField('expense-bank', 'Banco', $('#expense-form'), $('#expense-form .dialog-actions'));
+const transferDestinationBankSelect = createBankField('transfer-destination-bank', 'Banco de destino', $('#expense-form'), $('#expense-form .dialog-actions'));
+transferDestinationBankSelect.querySelector('option[value="Sin asignar"]').remove();
 const csvBankSelect = createBankField('csv-bank', 'Banco del extracto', $('#csv-dialog'), $('#csv-summary'));
 const bankFilterSelect = document.createElement('select');
 bankFilterSelect.id = 'bank-filter';
@@ -68,7 +75,7 @@ $('#filter').insertAdjacentElement('afterend', bankFilterSelect);
 const typeFilterSelect = document.createElement('select');
 typeFilterSelect.id = 'type-filter';
 typeFilterSelect.setAttribute('aria-label', 'Filtrar por tipo de movimiento');
-setOptions(typeFilterSelect, [['all', 'Todos los movimientos'], ['fixed', 'Gastos fijos'], ['variable', 'Gastos variables'], ['credit_card', 'Tarjeta de crédito'], ['income', 'Ingresos']]);
+setOptions(typeFilterSelect, [['all', 'Todos los movimientos'], ['fixed', 'Gastos fijos'], ['variable', 'Gastos variables'], ['credit_card', 'Tarjeta de crédito'], ['income', 'Ingresos'], ['transfer', 'Transferencias']]);
 bankFilterSelect.insertAdjacentElement('afterend', typeFilterSelect);
 const frequencyFilterSelect = document.createElement('select');
 frequencyFilterSelect.id = 'frequency-filter';
@@ -93,11 +100,23 @@ const refreshCardFilter = () => {
   cardFilterSelect.value = cardNames.includes(selected) ? selected : 'all';
 };
 const monthKey = (date = viewedMonth) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`;
+async function loadAllRows(queryFactory) {
+  const rows = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await queryFactory().range(offset, offset + pageSize - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) return { data: rows, error: null };
+  }
+}
 const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 const isPaid = (expense) => expense.paid;
 const dayLabel = (day) => day === 1 ? '1 de cada mes' : `Día ${day}`;
 const movementDate = (item) => item.source === 'income'
   ? item.income_date
+  : item.source === 'transfer'
+    ? item.transfer_date
   : item.source === 'credit_card'
     ? item.payment_date
     : item.source === 'variable'
@@ -142,6 +161,27 @@ const purchaseInstallments = (purchase) => Array.from(
   { length: Number(purchase.installment_count) },
   (_, index) => cardInstallment(purchase, index + 1),
 );
+function accumulatedBankBalances() {
+  const balances = new Map(bankNames.map((bank) => [bank, 0]));
+  const today = dateKey(new Date());
+  const add = (bank, amount) => {
+    if (balances.has(bank)) balances.set(bank, balances.get(bank) + Math.round(Number(amount) * 100));
+  };
+  allIncomeTransactions.filter((item) => item.income_date <= today).forEach((item) => add(item.bank, item.amount));
+  allVariableExpenses.filter((item) => item.expense_date <= today).forEach((item) => add(item.bank, -item.amount));
+  allMonthlyExpenses.filter((item) => item.paid).forEach((item) => {
+    const paidDate = item.paid_at?.slice(0, 10) || `${item.month.slice(0, 7)}-${String(item.due_day).padStart(2, '0')}`;
+    if (paidDate <= today) add(item.bank, -item.amount);
+  });
+  cardPurchases.flatMap(purchaseInstallments)
+    .filter((item) => item.paid && item.payment_date <= today)
+    .forEach((item) => add(item.bank, -item.amount));
+  bankTransfers.filter((item) => item.transfer_date <= today).forEach((item) => {
+    add(item.from_bank, -item.amount);
+    add(item.to_bank, item.amount);
+  });
+  return balances;
+}
 
 function message(text, error = false) {
   const target = $('#auth-message');
@@ -231,6 +271,16 @@ async function loadMonth() {
     .gte('income_date', yearStart).lt('income_date', nextYearStart)
     .order('income_date').order('name');
   if (incomeError && !['PGRST205', '42P01'].includes(incomeError.code)) return showError(incomeError);
+  const [allMonthlyResult, allVariableResult, allIncomeResult, transferResult] = await Promise.all([
+    loadAllRows(() => supabase.from('monthly_expenses').select('id,user_id,fixed_expense_id,month,name,amount,due_day,paid,paid_at,bank,frequency,annual_month').order('id')),
+    loadAllRows(() => supabase.from('variable_expenses').select('id,user_id,name,amount,expense_date,bank,created_at').order('id')),
+    loadAllRows(() => supabase.from('income_transactions').select('id,user_id,name,amount,income_date,bank,created_at').order('id')),
+    loadAllRows(() => supabase.from('bank_transfers').select('id,user_id,name,amount,transfer_date,from_bank,to_bank,created_at').order('id')),
+  ]);
+  if (allMonthlyResult.error) return showError(allMonthlyResult.error);
+  if (allVariableResult.error) return showError(allVariableResult.error);
+  if (allIncomeResult.error && !['PGRST205', '42P01'].includes(allIncomeResult.error.code)) return showError(allIncomeResult.error);
+  if (transferResult.error && !['PGRST205', '42P01'].includes(transferResult.error.code)) return showError(transferResult.error);
   const { data: cardPurchaseData, error: cardPurchaseError } = await supabase.from('credit_card_purchases')
     .select('id,user_id,name,amount,installment_count,purchase_date,first_payment_date,first_installment_month,paid_in_full,card_name,bank,category,paid_installments,created_at,updated_at')
     .order('first_installment_month').order('name');
@@ -239,10 +289,17 @@ async function loadMonth() {
   yearFixedSnapshots = yearFixedData || [];
   yearVariableExpenses = yearVariableData || [];
   yearIncomeTransactions = incomeData || [];
+  allMonthlyExpenses = allMonthlyResult.data || [];
+  allVariableExpenses = allVariableResult.data || [];
+  allIncomeTransactions = allIncomeResult.data || [];
+  bankTransfers = transferResult.data || [];
   cardPurchases = cardPurchaseData || [];
   incomeSchemaAvailable = !incomeError;
+  transferSchemaAvailable = !transferResult.error;
   $('#income-schema-notice').hidden = incomeSchemaAvailable;
   $('#add-income').disabled = !incomeSchemaAvailable;
+  $('#transfer-schema-notice').hidden = transferSchemaAvailable;
+  $('#add-transfer').disabled = !transferSchemaAvailable;
   $('#card-schema-notice').hidden = cardSchemaAvailable;
   $('#add-card-expense').disabled = !cardSchemaAvailable;
   refreshCardFilter();
@@ -250,10 +307,14 @@ async function loadMonth() {
   const monthIncomeTransactions = yearIncomeTransactions
     .filter((item) => item.income_date.slice(0, 7) === month.slice(0, 7))
     .map((item) => ({ ...item, source: 'income', frequency: 'income', paid: true, expense_date: item.income_date }));
+  const monthTransfers = bankTransfers
+    .filter((item) => item.transfer_date.slice(0, 7) === month.slice(0, 7))
+    .map((item) => ({ ...item, source: 'transfer', frequency: 'transfer', paid: true, bank: item.from_bank, expense_date: item.transfer_date }));
   expenses = [
     ...(data || []).map((item) => ({ ...item, source: 'fixed' })),
     ...(variableData || []).map((item) => ({ ...item, source: 'variable', frequency: 'variable', paid: true, due_day: new Date(`${item.expense_date}T00:00:00`).getDate() })),
     ...monthIncomeTransactions,
+    ...monthTransfers,
     ...cardMonthItems,
   ];
   render();
@@ -295,7 +356,9 @@ function render() {
         };
       });
   listExpenses = recurringItems.sort((a, b) => a.due_day - b.due_day || a.name.localeCompare(b.name, 'es'));
-  const matchesBankTypeAndCard = (item) => (bankFilter === 'all' || (item.bank || 'Sin asignar') === bankFilter)
+  const matchesBankTypeAndCard = (item) => (bankFilter === 'all' || (item.source === 'transfer'
+    ? item.from_bank === bankFilter || item.to_bank === bankFilter
+    : (item.bank || 'Sin asignar') === bankFilter))
     && (typeFilter === 'all' || item.source === typeFilter)
     && (cardFilterSelect.value === 'all' || (item.source === 'credit_card' && item.card_name === cardFilterSelect.value));
   const filtered = listExpenses.filter(matchesBankTypeAndCard);
@@ -382,6 +445,10 @@ function render() {
   $('#income-foot').textContent = `${incomeItems.length} ${incomeItems.length === 1 ? 'ingreso registrado' : 'ingresos registrados'}`;
   $('#balance-value').textContent = money.format(incomeTotal - paidTotal);
   $('#balance-foot').textContent = `${money.format(incomeTotal)} de ingresos − ${money.format(paidTotal)} de gastos pagados`;
+  const bankBalances = accumulatedBankBalances();
+  $('#bank-balance-santander').textContent = money.format(bankBalances.get('Santander') / 100);
+  $('#bank-balance-ing').textContent = money.format(bankBalances.get('ING') / 100);
+  $('#bank-balance-revolut').textContent = money.format(bankBalances.get('Revolut') / 100);
   $('#card-paid-value').textContent = money.format(cardTotal);
   $('#total-foot').textContent = totalFooters[frequencyFilter] || `${fixedPaidLabel} + ${variablePaidLabel} + ${cardPaidItems.length} ${cardPaidItems.length === 1 ? 'cuota pagada' : 'cuotas pagadas'}`;
   const pendingCount = fixedPendingItems.length + cardPendingItems.length;
@@ -412,7 +479,7 @@ function render() {
   $('.progress-section').hidden = false;
   const query = $('#search').value.trim().toLocaleLowerCase('es');
   const filter = $('#filter').value;
-  const visible = filtered.filter((item) => `${item.name} ${item.category || ''} ${item.bank || 'Sin asignar'} ${item.card_name || ''}`.toLocaleLowerCase('es').includes(query) && (filter === 'all' || (filter === 'paid' ? isPaid(item) : !isPaid(item))));
+  const visible = filtered.filter((item) => `${item.name} ${item.category || ''} ${item.bank || 'Sin asignar'} ${item.card_name || ''} ${item.from_bank || ''} ${item.to_bank || ''}`.toLocaleLowerCase('es').includes(query) && (filter === 'all' || (filter === 'paid' ? isPaid(item) : !isPaid(item))));
   const sortOrder = sortSelect.value;
   visible.sort((a, b) => sortOrder.startsWith('date')
     ? movementDate(a).localeCompare(movementDate(b)) * (sortOrder === 'date-desc' ? -1 : 1)
@@ -421,12 +488,14 @@ function render() {
   if (!visible.length) {
     const noExpenses = monthExpenses.length === 0 && fixedTemplates.length === 0 && cardPurchases.length === 0;
     const noMatches = filtered.length === 0 && !noExpenses;
-    list.innerHTML = `<div class="empty-state"><div class="empty-illustration">${noExpenses ? '✳' : '⌕'}</div><h3>${noExpenses ? 'Tu lista empieza aquí' : noMatches ? 'No hay movimientos para estos filtros' : 'No encontramos ese movimiento'}</h3><p>${noExpenses ? 'Añade un gasto, registra un ingreso o una compra con tarjeta.' : noMatches ? 'Prueba otro banco, tipo, frecuencia o tarjeta.' : 'Prueba otra búsqueda o cambia el filtro.'}</p>${noExpenses ? '<button class="primary-button" data-action="add-fixed"><span>＋</span> Añadir gasto fijo</button> <button class="cancel-button" data-action="add-variable">Registrar gasto variable</button> <button class="cancel-button" data-action="add-income">Registrar ingreso</button>' : ''}${noExpenses && cardSchemaAvailable ? ' <button class="cancel-button" data-action="add-card">Compra con tarjeta</button>' : ''}</div>`;
+    list.innerHTML = `<div class="empty-state"><div class="empty-illustration">${noExpenses ? '✳' : '⌕'}</div><h3>${noExpenses ? 'Tu lista empieza aquí' : noMatches ? 'No hay movimientos para estos filtros' : 'No encontramos ese movimiento'}</h3><p>${noExpenses ? 'Añade un gasto, registra un ingreso, una transferencia o una compra con tarjeta.' : noMatches ? 'Prueba otro banco, tipo, frecuencia o tarjeta.' : 'Prueba otra búsqueda o cambia el filtro.'}</p>${noExpenses ? '<button class="primary-button" data-action="add-fixed"><span>＋</span> Añadir gasto fijo</button> <button class="cancel-button" data-action="add-variable">Registrar gasto variable</button> <button class="cancel-button" data-action="add-income">Registrar ingreso</button>' : ''}${noExpenses && transferSchemaAvailable ? ' <button class="cancel-button" data-action="add-transfer">Transferencia</button>' : ''}${noExpenses && cardSchemaAvailable ? ' <button class="cancel-button" data-action="add-card">Compra con tarjeta</button>' : ''}</div>`;
     return;
   }
   list.innerHTML = visible.map((item) => {
     const category = categoryIcons[item.category] ? item.category : 'Otros';
-    const frequency = item.source === 'variable'
+    const frequency = item.source === 'transfer'
+      ? 'Transferencia entre bancos'
+      : item.source === 'variable'
       ? 'Gasto variable'
       : item.source === 'income'
         ? 'Ingreso'
@@ -437,7 +506,9 @@ function render() {
           : item.frequency === 'quarterly'
             ? `Trimestral · desde ${monthName(item.annual_month)}`
             : 'Mensual';
-    const dateLabel = item.source === 'variable'
+    const dateLabel = item.source === 'transfer'
+      ? expenseDateLabel(item.transfer_date)
+      : item.source === 'variable'
       ? expenseDateLabel(item.expense_date)
       : item.source === 'income'
         ? expenseDateLabel(item.income_date)
@@ -446,22 +517,24 @@ function render() {
       : item.payment_month
         ? `${dayLabel(item.due_day)} · ${monthName(Number(item.payment_month.slice(5, 7)))} ${item.payment_month.slice(0, 4)}`
         : dayLabel(item.due_day);
-    const status = item.source === 'income'
+    const status = item.source === 'transfer'
+      ? '<span class="status-pill status-transfer">↔ Transferencia</span>'
+      : item.source === 'income'
       ? '<span class="status-pill status-income">↗ Ingreso</span>'
       : item.source === 'variable'
       ? '<span class="status-pill status-paid">✓ Pagado</span>'
       : `<button class="status-pill ${item.paid ? 'status-paid' : 'status-pending'}" data-action="toggle">${item.paid ? '✓ Pagado' : '◷ Programado'}</button>`;
-    const institution = item.source === 'credit_card' ? item.card_name : item.bank || 'Sin asignar';
+    const institution = item.source === 'transfer' ? `${item.from_bank} → ${item.to_bank}` : item.source === 'credit_card' ? item.card_name : item.bank || 'Sin asignar';
     const dateMetaLabel = item.source === 'credit_card' ? 'FECHA DEL GASTO' : item.source === 'fixed' ? 'VENCIMIENTO' : 'FECHA';
     const secondaryMetaLabel = item.source === 'credit_card' ? 'FECHA DEL PAGO' : 'TIPO';
     const secondaryMetaValue = item.source === 'credit_card' ? expenseDateLabel(item.payment_date) : frequency;
     const installmentIndicator = item.source === 'credit_card'
       ? `<span class="installment-indicator">${escapeHtml(frequency)}</span>`
       : '';
-    const rowClass = item.source === 'credit_card' ? 'expense-row credit-card-row' : item.source === 'income' ? 'expense-row income-row' : 'expense-row';
-    const detailLabel = item.source === 'income' ? 'Ingreso' : category;
-    const amountLabel = item.source === 'income' ? `+${money.format(item.amount)}` : money.format(item.amount);
-    return `<article class="${rowClass}" data-id="${escapeHtml(item.id)}" data-source="${item.source}"><div class="expense-name"><span class="category-icon ${categoryClasses[category]}" aria-hidden="true">${categoryIcons[category]}</span><div><div class="expense-title">${escapeHtml(item.name)}</div><div class="expense-category-label">${escapeHtml(detailLabel)} · ${escapeHtml(institution)}</div>${installmentIndicator}</div></div><div class="row-meta ${item.source === 'credit_card' ? 'purchase-meta' : item.source === 'income' ? 'income-date-meta' : ''}"><div class="row-label">${dateMetaLabel}</div><div class="row-value">${escapeHtml(dateLabel)}</div></div><div class="row-meta ${item.source === 'credit_card' ? 'payment-meta' : ''}"><div class="row-label">${secondaryMetaLabel}</div><div class="row-value">${escapeHtml(secondaryMetaValue)}</div></div><div class="amount-meta"><div class="row-label">IMPORTE</div><div class="row-value amount-value ${item.source === 'income' ? 'income-amount' : ''}">${amountLabel}</div></div>${status}<div class="row-actions"><button class="icon-button" data-action="edit" aria-label="Editar ${escapeHtml(item.name)}" title="Editar">✎</button><button class="icon-button" data-action="delete" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">×</button></div></article>`;
+    const rowClass = item.source === 'credit_card' ? 'expense-row credit-card-row' : item.source === 'income' ? 'expense-row income-row' : item.source === 'transfer' ? 'expense-row transfer-row' : 'expense-row';
+    const detailLabel = item.source === 'income' ? 'Ingreso' : item.source === 'transfer' ? 'Movimiento interno' : category;
+    const amountLabel = item.source === 'income' ? `+${money.format(item.amount)}` : item.source === 'transfer' ? money.format(item.amount) : money.format(item.amount);
+    return `<article class="${rowClass}" data-id="${escapeHtml(item.id)}" data-source="${item.source}"><div class="expense-name"><span class="category-icon ${categoryClasses[category]}" aria-hidden="true">${categoryIcons[category]}</span><div><div class="expense-title">${escapeHtml(item.name)}</div><div class="expense-category-label">${escapeHtml(detailLabel)} · ${escapeHtml(institution)}</div>${installmentIndicator}</div></div><div class="row-meta ${item.source === 'credit_card' ? 'purchase-meta' : item.source === 'income' || item.source === 'transfer' ? 'income-date-meta' : ''}"><div class="row-label">${dateMetaLabel}</div><div class="row-value">${escapeHtml(dateLabel)}</div></div><div class="row-meta ${item.source === 'credit_card' ? 'payment-meta' : ''}"><div class="row-label">${secondaryMetaLabel}</div><div class="row-value">${escapeHtml(secondaryMetaValue)}</div></div><div class="amount-meta"><div class="row-label">IMPORTE</div><div class="row-value amount-value ${item.source === 'income' ? 'income-amount' : ''}">${amountLabel}</div></div>${status}<div class="row-actions"><button class="icon-button" data-action="edit" aria-label="Editar ${escapeHtml(item.name)}" title="Editar">✎</button><button class="icon-button" data-action="delete" aria-label="Eliminar ${escapeHtml(item.name)}" title="Eliminar">×</button></div></article>`;
   }).join('');
 }
 
@@ -476,12 +549,13 @@ function openDialog(item = null, source = 'fixed') {
   $('#expense-day').value = item?.due_day ?? 1;
   $('#expense-category').value = item?.category || 'Vivienda';
   $('#expense-bank option[value="Sin asignar"]').hidden = false;
-  $('#expense-bank').value = item?.bank || (item && source !== 'income' ? 'Sin asignar' : '');
+  $('#expense-bank').value = source === 'transfer' ? (item?.from_bank || '') : item?.bank || (item && source !== 'income' ? 'Sin asignar' : '');
+  transferDestinationBankSelect.value = source === 'transfer' ? (item?.to_bank || '') : '';
   $('#expense-frequency').value = item?.frequency || 'monthly';
   $('#expense-annual-month').value = item?.annual_month ?? viewedMonth.getMonth() + 1;
   const now = new Date();
   const defaultDate = viewedMonth.getFullYear() === now.getFullYear() && viewedMonth.getMonth() === now.getMonth() ? now : viewedMonth;
-  $('#expense-date').value = purchase?.purchase_date || item?.income_date || item?.expense_date || dateKey(defaultDate);
+  $('#expense-date').value = purchase?.purchase_date || item?.income_date || item?.transfer_date || item?.expense_date || dateKey(defaultDate);
   $('#expense-card-name').value = purchase?.card_name || '';
   $('#card-full-payment').checked = Boolean(purchase?.paid_in_full);
   $('#expense-installment-count').value = purchase?.installment_count || 1;
@@ -510,7 +584,11 @@ function openDialog(item = null, source = 'fixed') {
     ? item ? 'Edita la compra con tarjeta' : 'Registra una compra con tarjeta'
     : source === 'income'
       ? item ? 'Edita el ingreso' : 'Registra un ingreso'
-      : item ? (source === 'variable' ? 'Edita tu gasto variable' : 'Edita tu gasto fijo') : (source === 'variable' ? 'Registra un gasto variable' : 'Añade un gasto fijo');
+      : source === 'transfer'
+        ? item ? 'Edita la transferencia' : 'Registra una transferencia'
+        : item ? (source === 'variable' ? 'Edita tu gasto variable' : 'Edita tu gasto fijo') : (source === 'variable' ? 'Registra un gasto variable' : 'Añade un gasto fijo');
+  const actionLabel = source === 'transfer' ? 'Guardar transferencia' : source === 'income' ? 'Guardar ingreso' : 'Guardar gasto';
+  $('#save-expense-button').innerHTML = `${actionLabel} <span>&#8594;</span>`;
   $('#expense-dialog').showModal();
   $('#expense-name').focus();
 }
@@ -519,12 +597,13 @@ function updateFrequencyFields() {
   const source = $('#expense-source').value;
   const isCard = source === 'credit_card';
   const isIncome = source === 'income';
+  const isTransfer = source === 'transfer';
   const paidInFull = $('#card-full-payment').checked;
   const purchase = cardPurchases.find((entry) => entry.id === $('#expense-id').value);
   const purchaseHasPaidInstallments = Boolean(purchase?.paid_installments?.length);
   const scheduled = frequency !== 'monthly';
   $('#fixed-month-field').hidden = !scheduled || source !== 'fixed';
-  $('#expense-date-field').hidden = source !== 'variable' && !isIncome && !isCard;
+  $('#expense-date-field').hidden = source !== 'variable' && !isIncome && !isCard && !isTransfer;
   $('#installment-fields').hidden = !isCard;
   $('#installment-fields').classList.toggle('single-field', paidInFull);
   $('#installment-count-field').hidden = paidInFull;
@@ -533,24 +612,27 @@ function updateFrequencyFields() {
   $('#first-payment-date-label').textContent = paidInFull ? 'Fecha del pago total' : 'Fecha de la primera cuota';
   $('#card-full-payment-field').hidden = !isCard;
   $('#card-full-payment').disabled = !isCard || purchaseHasPaidInstallments;
-  $('#expense-date').disabled = (source !== 'variable' && !isIncome && !isCard) || (isCard && purchaseHasPaidInstallments);
-  $('#expense-date-label').textContent = isIncome ? 'Fecha del ingreso' : 'Fecha del gasto';
+  $('#expense-date').disabled = (source !== 'variable' && !isIncome && !isCard && !isTransfer) || (isCard && purchaseHasPaidInstallments);
+  $('#expense-date-label').textContent = isIncome ? 'Fecha del ingreso' : isTransfer ? 'Fecha de la transferencia' : 'Fecha del gasto';
   $('#expense-bank-field').hidden = false;
   $('#expense-bank').disabled = false;
-  $('#expense-bank-field').firstChild.textContent = isIncome ? 'Banco del ingreso' : isCard ? 'Banco de la tarjeta' : 'Banco';
+  $('#expense-bank-field').firstChild.textContent = isIncome ? 'Banco del ingreso' : isTransfer ? 'Banco de origen' : isCard ? 'Banco de la tarjeta' : 'Banco';
   const bankOption = $('#expense-bank option[value="Sin asignar"]');
-  bankOption.hidden = isIncome || (isCard && !purchase);
-  if ((isIncome || (isCard && !purchase)) && $('#expense-bank').value === 'Sin asignar') $('#expense-bank').value = '';
-  $('#expense-category-field').hidden = isIncome;
+  bankOption.hidden = isIncome || isTransfer || (isCard && !purchase);
+  if ((isIncome || isTransfer || (isCard && !purchase)) && $('#expense-bank').value === 'Sin asignar') $('#expense-bank').value = '';
+  $('#transfer-destination-bank-field').hidden = !isTransfer;
+  transferDestinationBankSelect.disabled = !isTransfer;
+  $('#expense-category-field').hidden = isIncome || isTransfer;
   $('#fixed-frequency-field').hidden = source !== 'fixed';
   $('#fixed-day-field').hidden = source !== 'fixed';
   $('#annual-month-label').textContent = frequency === 'annual' ? 'Mes de pago' : 'Mes del primer pago';
-  $('#expense-amount-label').textContent = isCard ? 'Importe total de la compra' : isIncome ? 'Importe del ingreso' : 'Importe';
-  $('#expense-amount-unit').textContent = source === 'credit_card' ? '€ total' : source === 'variable' ? '€' : frequency === 'annual' ? '€ / año' : frequency === 'quarterly' ? '€ / trimestre' : '€ / mes';
+  $('#expense-amount-label').textContent = isCard ? 'Importe total de la compra' : isIncome ? 'Importe del ingreso' : isTransfer ? 'Importe de la transferencia' : 'Importe';
+  $('#expense-amount-unit').textContent = source === 'credit_card' ? '€ total' : source === 'variable' || isIncome || isTransfer ? '€' : frequency === 'annual' ? '€ / año' : frequency === 'quarterly' ? '€ / trimestre' : '€ / mes';
 }
 $('#add-expense').addEventListener('click', () => openDialog());
 $('#add-variable-expense').addEventListener('click', () => openDialog(null, 'variable'));
 $('#add-income').addEventListener('click', () => openDialog(null, 'income'));
+$('#add-transfer').addEventListener('click', () => openDialog(null, 'transfer'));
 $('#add-card-expense').addEventListener('click', () => openDialog(null, 'credit_card'));
 $('#mobile-add')?.addEventListener('click', () => openDialog());
 $('#expense-frequency').addEventListener('change', updateFrequencyFields);
@@ -573,7 +655,30 @@ $('#expense-form').addEventListener('submit', async (event) => {
   const values = { user_id: currentUser.id, name: $('#expense-name').value.trim(), amount: Math.round(Number($('#expense-amount').value) * 100) / 100, due_day: Math.min(31, Math.max(1, Number($('#expense-day').value))), category: $('#expense-category').value, bank: $('#expense-bank').value, frequency, annual_month: frequency === 'annual' ? Number($('#expense-annual-month').value) : 1 };
   let templateId = id;
   let error;
-  if (source === 'income') {
+  if (source === 'transfer') {
+    const toBank = transferDestinationBankSelect.value;
+    if (!bankNames.includes(values.bank) || !bankNames.includes(toBank) || values.bank === toBank) {
+      transferDestinationBankSelect.setCustomValidity(values.bank === toBank
+        ? 'El banco de origen y el de destino deben ser distintos.'
+        : 'Selecciona un banco de destino válido.');
+      transferDestinationBankSelect.reportValidity();
+      transferDestinationBankSelect.setCustomValidity('');
+      busy = false;
+      return;
+    }
+    const transferValues = {
+      user_id: currentUser.id,
+      name: values.name,
+      amount: values.amount,
+      transfer_date: $('#expense-date').value,
+      from_bank: values.bank,
+      to_bank: toBank,
+    };
+    const result = id
+      ? await supabase.from('bank_transfers').update(transferValues).eq('id', id)
+      : await supabase.from('bank_transfers').insert(transferValues);
+    error = result.error;
+  } else if (source === 'income') {
     if (!bankNames.includes(values.bank)) {
       $('#expense-bank').setCustomValidity('Selecciona el banco donde recibiste el ingreso.');
       $('#expense-bank').reportValidity();
@@ -653,6 +758,10 @@ $('#expense-list').addEventListener('click', async (event) => {
     if (incomeSchemaAvailable) openDialog(null, 'income');
     return;
   }
+  if (button.dataset.action === 'add-transfer') {
+    if (transferSchemaAvailable) openDialog(null, 'transfer');
+    return;
+  }
   if (button.dataset.action === 'add-card') {
     if (cardSchemaAvailable) openDialog(null, 'credit_card');
     return;
@@ -698,8 +807,9 @@ $('#expense-list').addEventListener('click', async (event) => {
   } else if (button.dataset.action === 'edit') {
     busy = false;
     return openDialog(item, item.source);
-  } else if (button.dataset.action === 'delete' && window.confirm(`¿Eliminar «${item.name}»${item.source === 'income' ? ' de tus ingresos' : item.source === 'variable' ? ' de tus gastos variables' : item.source === 'credit_card' ? ' y todas sus cuotas' : ' de tus gastos fijos'}?`)) {
-    if (item.source === 'income') ({ error } = await supabase.from('income_transactions').delete().eq('id', item.id));
+  } else if (button.dataset.action === 'delete' && window.confirm(`¿Eliminar «${item.name}»${item.source === 'transfer' ? ' de tus transferencias' : item.source === 'income' ? ' de tus ingresos' : item.source === 'variable' ? ' de tus gastos variables' : item.source === 'credit_card' ? ' y todas sus cuotas' : ' de tus gastos fijos'}?`)) {
+    if (item.source === 'transfer') ({ error } = await supabase.from('bank_transfers').delete().eq('id', item.id));
+    else if (item.source === 'income') ({ error } = await supabase.from('income_transactions').delete().eq('id', item.id));
     else if (item.source === 'variable') ({ error } = await supabase.from('variable_expenses').delete().eq('id', item.id));
     else if (item.source === 'credit_card') ({ error } = await supabase.from('credit_card_purchases').delete().eq('id', item.purchase_id));
     else {
@@ -719,10 +829,10 @@ $('#search').addEventListener('input', render);
 $('#filter').addEventListener('change', render);
 bankFilterSelect.addEventListener('change', render);
 typeFilterSelect.addEventListener('change', () => {
-  const incomeOnly = typeFilterSelect.value === 'income';
-  frequencyFilterSelect.disabled = incomeOnly;
-  cardFilterSelect.disabled = incomeOnly;
-  if (incomeOnly) {
+  const nonExpenseType = ['income', 'transfer'].includes(typeFilterSelect.value);
+  frequencyFilterSelect.disabled = nonExpenseType;
+  cardFilterSelect.disabled = nonExpenseType;
+  if (nonExpenseType) {
     frequencyFilterSelect.value = 'all';
     cardFilterSelect.value = 'all';
   }

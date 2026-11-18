@@ -11,4 +11,6 @@ El esquema inicial está en [`supabase/setup.sql`](./supabase/setup.sql). Está 
 
 `income_transactions` guarda los ingresos con fecha y banco obligatorio. Su política RLS limita la lectura y modificación al usuario propietario, igual que las tablas de gastos.
 
+`bank_transfers` guarda transferencias entre bancos propios como movimientos separados de ingresos y gastos. RLS restringe cada transferencia a su usuario propietario.
+
 La conexión bancaria directa Tink no está habilitada para uso personal. La app permite importar extractos CSV: el archivo se interpreta localmente y solo se guardan los movimientos que confirmes en la vista previa. Las filas se insertan en `variable_expenses` bajo el usuario autenticado y las protege la política RLS existente.
