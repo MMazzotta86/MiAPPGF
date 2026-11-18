@@ -75,6 +75,8 @@
 .installment-indicator{display:inline-flex;align-self:flex-start;margin-top:5px;padding:3px 7px;border-radius:20px;background:#f3f0fc;color:#6044c6;font-size:9px;font-weight:700;line-height:1.2;white-space:nowrap}
 @media(max-width:1050px) and (min-width:761px){.credit-card-row{grid-template-columns:minmax(120px,1.2fr) .8fr .8fr .7fr auto auto;gap:8px}}
 @media(max-width:760px){.credit-card-row{grid-template-columns:minmax(0,1fr) auto}.expense-row>.purchase-meta,.expense-row>.payment-meta{grid-column:1/-1;margin-left:44px;display:flex;align-items:center;gap:8px}.expense-row>.purchase-meta{grid-row:3}.expense-row>.payment-meta{grid-row:4}}
-.expense-row,.income-row,.credit-card-row{grid-template-columns:minmax(0,1.5fr) minmax(90px,.75fr) minmax(110px,.9fr) minmax(90px,.7fr) auto auto}
-@media(max-width:1050px) and (min-width:761px){.expense-row,.income-row,.credit-card-row{grid-template-columns:minmax(0,1.25fr) minmax(75px,.75fr) minmax(95px,.9fr) minmax(75px,.7fr) auto auto;gap:8px}}
+.expense-row,.income-row,.credit-card-row{grid-template-columns:minmax(0,1.5fr) minmax(90px,.75fr) minmax(110px,.9fr) minmax(90px,.7fr) 100px 64px}
+.expense-row>.status-pill{justify-self:center}
+.expense-row>.row-actions{width:64px;justify-content:center}
+@media(max-width:1050px) and (min-width:761px){.expense-row,.income-row,.credit-card-row{grid-template-columns:minmax(0,1.25fr) minmax(75px,.75fr) minmax(95px,.9fr) minmax(75px,.7fr) 94px 60px;gap:8px}.expense-row>.row-actions{width:60px}}
 @media(max-width:760px){.expense-row,.income-row,.credit-card-row{grid-template-columns:minmax(0,1fr) auto}}
