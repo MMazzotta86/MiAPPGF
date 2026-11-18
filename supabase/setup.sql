@@ -43,6 +43,16 @@ create table if not exists public.variable_expenses (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.income_transactions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null check (char_length(name) between 1 and 120),
+  amount numeric(12,2) not null check (amount > 0),
+  income_date date not null,
+  bank text not null check (bank in ('Santander', 'ING', 'Revolut')),
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.credit_card_purchases (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -54,6 +64,7 @@ create table if not exists public.credit_card_purchases (
   first_installment_month date not null check (extract(day from first_installment_month) = 1),
   paid_in_full boolean not null default false,
   card_name text not null check (char_length(card_name) between 1 and 80),
+  bank text not null default 'Sin asignar',
   category text not null default 'Otros',
   paid_installments smallint[] not null default '{}',
   created_at timestamptz not null default now(),
@@ -63,7 +74,11 @@ create table if not exists public.credit_card_purchases (
 alter table public.credit_card_purchases
   add column if not exists purchase_date date,
   add column if not exists first_payment_date date,
+  add column if not exists bank text not null default 'Sin asignar',
   add column if not exists paid_in_full boolean not null default false;
+alter table public.credit_card_purchases
+  drop constraint if exists credit_card_purchases_bank_check,
+  add constraint credit_card_purchases_bank_check check (bank in ('Santander', 'ING', 'Revolut', 'Sin asignar'));
 update public.credit_card_purchases
   set purchase_date = first_installment_month
   where purchase_date is null;
@@ -111,12 +126,15 @@ create index if not exists monthly_expenses_user_month_idx
   on public.monthly_expenses (user_id, month);
 create index if not exists variable_expenses_user_date_idx
   on public.variable_expenses (user_id, expense_date);
+create index if not exists income_transactions_user_date_idx
+  on public.income_transactions (user_id, income_date);
 create index if not exists credit_card_purchases_user_first_month_idx
   on public.credit_card_purchases (user_id, first_installment_month);
 
 alter table public.fixed_expenses enable row level security;
 alter table public.monthly_expenses enable row level security;
 alter table public.variable_expenses enable row level security;
+alter table public.income_transactions enable row level security;
 alter table public.credit_card_purchases enable row level security;
 
 drop policy if exists "owner manages fixed expenses" on public.fixed_expenses;
@@ -137,6 +155,12 @@ create policy "owner manages variable expenses" on public.variable_expenses
   using ((select auth.uid()) = user_id)
   with check ((select auth.uid()) = user_id);
 
+drop policy if exists "owner manages income transactions" on public.income_transactions;
+create policy "owner manages income transactions" on public.income_transactions
+  for all to authenticated
+  using ((select auth.uid()) = user_id)
+  with check ((select auth.uid()) = user_id);
+
 drop policy if exists "owner manages credit card purchases" on public.credit_card_purchases;
 create policy "owner manages credit card purchases" on public.credit_card_purchases
   for all to authenticated
@@ -146,6 +170,7 @@ create policy "owner manages credit card purchases" on public.credit_card_purcha
 grant select, insert, update, delete on public.fixed_expenses to authenticated;
 grant select, insert, update, delete on public.monthly_expenses to authenticated;
 grant select, insert, update, delete on public.variable_expenses to authenticated;
+grant select, insert, update, delete on public.income_transactions to authenticated;
 grant select, insert, update, delete on public.credit_card_purchases to authenticated;
 
 notify pgrst, 'reload schema';

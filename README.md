@@ -23,7 +23,9 @@ En el resumen mensual, **Gastos del mes** suma los gastos fijos marcados como pa
 
 Al registrar o editar un gasto, selecciona **Santander**, **ING** o **Revolut**. Los filtros de banco y tipo de gasto se pueden combinar; las tarjetas del resumen se recalculan con la selección. Los gastos existentes aparecerán como **Sin asignar** hasta que les indiques un banco.
 
-Para activar esta función en una base de datos existente, ejecuta `supabase/setup.sql` en Supabase > SQL Editor. La migración añade el campo del banco a los gastos fijos, sus vencimientos mensuales y los gastos variables.
+Registra también ingresos con su fecha y banco; las compras con tarjeta también se pueden asociar a su banco emisor. En **Movimientos bancarios** puedes consultar ingresos y gastos por banco o todos juntos, ver ingresos y balance en el resumen y ordenar los movimientos por fecha o importe. Las compras con tarjeta que ya existían conservan el banco **Sin asignar** hasta que se editen.
+
+Para activar estas funciones en una base de datos existente, ejecuta `supabase/setup.sql` en Supabase > SQL Editor. El esquema añade bancos a los gastos y crea la tabla protegida `income_transactions`.
 
 La conexión bancaria directa Tink no está habilitada para este uso personal. No se solicitan ni guardan credenciales bancarias.
 

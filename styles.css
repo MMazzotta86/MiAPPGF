@@ -65,6 +65,12 @@
 @media(max-width:760px){.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.total-card{grid-column:1/-1}}
 .list-tools{flex-wrap:wrap}.list-tools select{min-width:105px}
 @media(max-width:760px){.list-tools{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.list-tools .search-box{grid-column:1/-1;width:100%}.list-tools select{width:100%;min-width:0;padding:0 5px;font-size:9px}}
+.income-row{grid-template-columns:minmax(150px,1.3fr) .9fr .8fr .8fr auto auto}
+.income-amount{color:var(--green)}
+.status-income{background:#eaf5ee;color:#468c65;cursor:default}
+#expense-category-field[hidden]{display:none}
+@media(max-width:1050px) and (min-width:761px){.income-row{grid-template-columns:minmax(120px,1.2fr) .8fr .7fr .7fr auto auto;gap:8px}}
+@media(max-width:760px){.expense-row>.income-date-meta{grid-column:1/-1;grid-row:3;margin-left:40px;display:flex;align-items:center;gap:8px}.income-row>.amount-meta{grid-row:2}.income-row>.row-actions{grid-row:2}}
 .credit-card-row{grid-template-columns:minmax(150px,1.3fr) .9fr .9fr .8fr auto auto}
 .installment-indicator{display:inline-flex;align-self:flex-start;margin-top:5px;padding:3px 7px;border-radius:20px;background:#f3f0fc;color:#6044c6;font-size:9px;font-weight:700;line-height:1.2;white-space:nowrap}
 @media(max-width:1050px) and (min-width:761px){.credit-card-row{grid-template-columns:minmax(120px,1.2fr) .8fr .8fr .7fr auto auto;gap:8px}}
