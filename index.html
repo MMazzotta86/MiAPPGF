@@ -53,6 +53,16 @@
         <article class="stat-card"><div class="stat-top"><span id="card-paid-title">Total tarjetas</span><span class="stat-icon violet-icon">&#10003;</span></div><div class="stat-value" id="card-paid-value">0,00 &euro;</div><div class="stat-foot"><span class="foot-dot violet-dot"></span><span id="card-paid-foot">0 cuotas</span></div></article>
         <article class="stat-card annual-summary-card"><div class="stat-top"><span id="annual-summary-title">Acumulado anual</span><span class="stat-icon violet-icon">&#8721;</span></div><div class="annual-summary-grid"><div class="annual-summary-item"><span>Pagado</span><strong id="annual-paid-value">0,00 &euro;</strong><small id="annual-paid-count">0 gastos</small></div><div class="annual-summary-item"><span>Programado</span><strong id="annual-pending-value">0,00 &euro;</strong><small id="annual-pending-count">0 gastos programados</small></div><div class="annual-summary-item annual-total-item"><span>Total</span><strong id="annual-total-value">0,00 &euro;</strong><small id="annual-total-count">0 gastos</small></div></div></article>
       </section>
+      <section class="expense-period-breakdowns" aria-label="Gastos generales y por banco">
+        <article class="stat-card expense-breakdown-card">
+          <div class="stat-top"><span id="monthly-bank-summary-title">Gastos del mes</span><span class="stat-icon violet-icon">&#8721;</span></div>
+          <div class="expense-breakdown-wrap"><table class="expense-breakdown-table"><thead><tr><th>Banco</th><th>Pagado</th><th>Pendiente</th><th>Total</th></tr></thead><tbody id="monthly-bank-summary"></tbody></table></div>
+        </article>
+        <article class="stat-card expense-breakdown-card">
+          <div class="stat-top"><span id="yearly-bank-summary-title">Gastos del año</span><span class="stat-icon violet-icon">&#8721;</span></div>
+          <div class="expense-breakdown-wrap"><table class="expense-breakdown-table"><thead><tr><th>Banco</th><th>Pagado</th><th>Pendiente</th><th>Total</th></tr></thead><tbody id="yearly-bank-summary"></tbody></table></div>
+        </article>
+      </section>
       <p id="card-schema-notice" class="card-schema-notice" role="status" hidden>Falta actualizar la base de datos para usar las compras con tarjeta. En Supabase, ejecuta de nuevo <code>supabase/setup.sql</code>. Si ya lo hiciste, ejecuta <code>NOTIFY pgrst, 'reload schema';</code> en el SQL Editor y recarga la página.</p>
       <p id="income-schema-notice" class="card-schema-notice" role="status" hidden>Falta actualizar la base de datos para registrar ingresos. En Supabase, ejecuta de nuevo <code>supabase/setup.sql</code> y recarga la página.</p>
       <p id="transfer-schema-notice" class="card-schema-notice" role="status" hidden>Falta actualizar la base de datos para registrar transferencias. En Supabase, ejecuta de nuevo <code>supabase/setup.sql</code> y recarga la página.</p>

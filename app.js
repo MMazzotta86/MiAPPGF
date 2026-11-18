@@ -268,6 +268,39 @@ function renderBankBalances() {
   }
 }
 
+function renderExpenseBreakdown(items, targetSelector) {
+  const totalsByBank = new Map();
+  const total = { paid: 0, pending: 0 };
+  for (const item of items) {
+    if (!['fixed', 'variable', 'credit_card'].includes(item.source)) continue;
+    const bank = item.bank || 'Sin asignar';
+    const amount = Math.round(Number(item.amount) * 100);
+    const status = isPaid(item) ? 'paid' : 'pending';
+    total[status] += amount;
+    const bankTotal = totalsByBank.get(bank) || { paid: 0, pending: 0 };
+    bankTotal[status] += amount;
+    totalsByBank.set(bank, bankTotal);
+  }
+  const names = [...new Set([...bankRecords.map((bank) => bank.name), ...totalsByBank.keys()])];
+  const rows = [['Todos los bancos', total], ...names.map((name) => [name, totalsByBank.get(name) || { paid: 0, pending: 0 }])];
+  const body = $(targetSelector);
+  body.replaceChildren();
+  for (const [name, amounts] of rows) {
+    const row = document.createElement('tr');
+    const bankCell = document.createElement('th');
+    bankCell.scope = 'row';
+    bankCell.textContent = name;
+    const paidCell = document.createElement('td');
+    paidCell.textContent = money.format(amounts.paid / 100);
+    const pendingCell = document.createElement('td');
+    pendingCell.textContent = money.format(amounts.pending / 100);
+    const totalCell = document.createElement('td');
+    totalCell.textContent = money.format((amounts.paid + amounts.pending) / 100);
+    row.append(bankCell, paidCell, pendingCell, totalCell);
+    body.append(row);
+  }
+}
+
 async function showApp(user) {
   currentUser = user;
   $('#auth-screen').hidden = true;
@@ -483,6 +516,10 @@ function render() {
     expense_date: item.income_date,
   }));
   const yearCardItems = cardPurchases.flatMap(purchaseInstallments).filter((item) => item.payment_month.slice(0, 4) === String(year));
+  $('#monthly-bank-summary-title').textContent = `Gastos del mes · ${label}`;
+  $('#yearly-bank-summary-title').textContent = `Gastos del año · ${year}`;
+  renderExpenseBreakdown(monthExpenses, '#monthly-bank-summary');
+  renderExpenseBreakdown([...yearFixedItems, ...yearVariableItems, ...yearCardItems], '#yearly-bank-summary');
   const yearItems = [...yearFixedItems, ...yearVariableItems, ...yearIncomeItems, ...yearCardItems];
   const matchesBankAndType = matchesBankTypeAndCard;
   const summaryItems = (frequencyFilter === 'all' ? monthExpenses : yearItems)

@@ -21,6 +21,8 @@ También puedes importar extractos bancarios en CSV de Revolut, Santander o ING 
 
 En el resumen mensual, **Gastos del mes** suma los gastos fijos marcados como pagados y todos los gastos variables registrados. Los otros indicadores muestran los gastos por pagar, los fijos pagados y los variables pagados.
 
+Debajo de los indicadores hay dos desgloses independientes de los filtros de movimientos: **Gastos del mes** corresponde al mes seleccionado y **Gastos del año** al año de ese mes. Ambos muestran el total general y cada banco, separando importes pagados, pendientes y total. Incluyen gastos fijos, gastos variables y cuotas de tarjeta; no incluyen ingresos ni transferencias.
+
 En **Mis bancos**, cada usuario puede añadir bancos propios y archivar o reactivar los que ya no utiliza. Santander, ING y Revolut aparecen inicialmente; los bancos que ya estaban asignados a movimientos se conservan al actualizar el esquema. Al registrar o editar un movimiento se elige un banco activo. Los filtros de banco y tipo se pueden combinar, y los saldos se muestran para los bancos de esa cuenta. Archivar un banco no elimina sus movimientos históricos.
 
 Registra también ingresos con su fecha y banco; las compras con tarjeta también se pueden asociar a su banco emisor. En **Movimientos bancarios** puedes consultar ingresos y gastos por banco o todos juntos, ver ingresos y balance en el resumen y ordenar los movimientos por fecha o importe. Las compras con tarjeta que ya existían conservan el banco **Sin asignar** hasta que se editen.
