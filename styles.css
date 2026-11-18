@@ -81,7 +81,7 @@
 @media(max-width:1050px) and (min-width:761px){.expense-row,.income-row,.credit-card-row{grid-template-columns:minmax(0,1.25fr) minmax(75px,.75fr) minmax(95px,.9fr) minmax(75px,.7fr) 94px 60px;gap:8px}.expense-row>.row-actions{width:60px}}
 @media(max-width:760px){.expense-row,.income-row,.credit-card-row{grid-template-columns:minmax(0,1fr) auto}}
 .bank-balance-card{margin-top:14px;min-height:auto}
-.bank-balance-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:14px}
+.bank-balance-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:16px;margin-top:14px}
 .bank-balance-item{display:flex;flex-direction:column;gap:5px}
 .bank-balance-item span{font-size:10px;color:#777580}
 .bank-balance-item strong{font-family:Manrope,sans-serif;font-size:19px}
@@ -89,4 +89,11 @@
 .status-transfer{background:#f1edfc;color:#6750c6;cursor:default}
 .transfer-row .amount-value{color:#6750c6}
 #transfer-destination-bank-field[hidden]{display:none}
-@media(max-width:450px){.bank-balance-grid{gap:8px}.bank-balance-item strong{font-size:15px}}
+@media(max-width:450px){.bank-balance-grid{gap:8px;grid-template-columns:repeat(2,minmax(0,1fr))}.bank-balance-item strong{font-size:15px}}
+.auth-mode-button{display:block;width:100%;margin-top:13px;border:0;background:transparent;color:var(--purple);font:600 11px 'DM Sans',sans-serif;cursor:pointer}
+.bank-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.bank-list-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:12px}
+.bank-list-item .cancel-button{height:32px;flex:none}
+.bank-dialog-help{font-size:10px;color:#85838c;line-height:1.55}
+#bank-message{min-height:18px;color:#6750c6;font-size:11px}
+.welcome-actions{flex-wrap:wrap;justify-content:flex-end}

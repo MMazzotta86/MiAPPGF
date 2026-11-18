@@ -11,9 +11,9 @@ App personal de gastos fijos mensuales, trimestrales y anuales con inicio de ses
 
 No subas `.env`. La clave `sb_publishable_...` es apta para el cliente siempre que las tablas mantengan RLS activado; nunca uses `service_role` o una clave secreta en el navegador.
 
-## Cuenta e historial
+## Cuentas e historial
 
-Crea tu cuenta desde Supabase Dashboard > Authentication > Users y desactiva el registro público al terminar. La app inicia sesión con email y contraseña. Al abrir cada mes, guarda una copia de los gastos activos en `monthly_expenses`; los cambios a una plantilla no reescriben meses anteriores. Las tablas ya existentes en tu proyecto son `fixed_expenses` y `monthly_expenses`.
+Cada persona puede crear una cuenta desde la pantalla de acceso; las cuentas tienen sesiones y movimientos separados. Si Supabase pide confirmar el correo, hay que hacerlo antes de iniciar sesión. Las políticas RLS hacen que cada usuario solo pueda consultar sus propios datos. Al abrir cada mes, la app guarda una copia de los gastos activos en `monthly_expenses`; los cambios a una plantilla no reescriben meses anteriores.
 
 Los gastos variables se registran con nombre, importe, categoría y fecha elegida; se guardan por separado en `variable_expenses` y aparecen en el mes de esa fecha.
 
@@ -21,13 +21,13 @@ También puedes importar extractos bancarios en CSV de Revolut, Santander o ING 
 
 En el resumen mensual, **Gastos del mes** suma los gastos fijos marcados como pagados y todos los gastos variables registrados. Los otros indicadores muestran los gastos por pagar, los fijos pagados y los variables pagados.
 
-Al registrar o editar un gasto, selecciona **Santander**, **ING** o **Revolut**. Los filtros de banco y tipo de gasto se pueden combinar; las tarjetas del resumen se recalculan con la selección. Los gastos existentes aparecerán como **Sin asignar** hasta que les indiques un banco.
+En **Mis bancos**, cada usuario puede añadir bancos propios y archivar o reactivar los que ya no utiliza. Santander, ING y Revolut aparecen inicialmente; los bancos que ya estaban asignados a movimientos se conservan al actualizar el esquema. Al registrar o editar un movimiento se elige un banco activo. Los filtros de banco y tipo se pueden combinar, y los saldos se muestran para los bancos de esa cuenta. Archivar un banco no elimina sus movimientos históricos.
 
 Registra también ingresos con su fecha y banco; las compras con tarjeta también se pueden asociar a su banco emisor. En **Movimientos bancarios** puedes consultar ingresos y gastos por banco o todos juntos, ver ingresos y balance en el resumen y ordenar los movimientos por fecha o importe. Las compras con tarjeta que ya existían conservan el banco **Sin asignar** hasta que se editen.
 
 Las transferencias entre bancos propios se registran aparte: reducen el saldo neto registrado del banco de origen y aumentan el del banco de destino, sin contarse como ingreso ni como gasto. Los saldos acumulados se calculan con los movimientos guardados en la app; no representan el saldo real de la cuenta si no se ha registrado su saldo inicial.
 
-Para activar estas funciones en una base de datos existente, ejecuta `supabase/setup.sql` en Supabase > SQL Editor. El esquema crea las tablas protegidas `income_transactions` y `bank_transfers`.
+Para activar estas funciones en una base de datos existente, ejecuta `supabase/setup.sql` en Supabase > SQL Editor. El esquema crea las tablas protegidas de movimientos y el maestro `user_banks`; RLS mantiene cada cuenta aislada.
 
 La conexión bancaria directa Tink no está habilitada para este uso personal. No se solicitan ni guardan credenciales bancarias.
 

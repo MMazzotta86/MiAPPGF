@@ -8,6 +8,7 @@ const monthFormatter = new Intl.DateTimeFormat('es-ES', { month: 'long', year: '
 const monthName = (month) => new Intl.DateTimeFormat('es-ES', { month: 'long' }).format(new Date(2025, Number(month) - 1, 1));
 const dateKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 const expenseDateLabel = (value) => new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short' }).format(new Date(`${value}T00:00:00`));
+const defaultBankNames = ['Santander', 'ING', 'Revolut'];
 const isDueInMonth = (item, date) => {
   const month = date.getMonth() + 1;
   if (item.frequency === 'annual') return Number(item.annual_month) === month;
@@ -40,7 +41,9 @@ let transferSchemaAvailable = false;
 let listExpenses = [];
 let viewedMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 let busy = false;
-const bankNames = ['Santander', 'ING', 'Revolut'];
+let bankRecords = [];
+let bankNames = [];
+let signUpMode = false;
 const setOptions = (select, options) => {
   for (const [value, label] of options) {
     const option = document.createElement('option');
@@ -58,7 +61,7 @@ function createBankField(id, labelText, parent, before) {
   const select = document.createElement('select');
   select.id = id;
   select.required = true;
-  setOptions(select, [['', 'Selecciona un banco'], ...bankNames.map((name) => [name, name]), ['Sin asignar', 'Sin asignar']]);
+  setOptions(select, [['', 'Selecciona un banco'], ['Sin asignar', 'Sin asignar']]);
   label.append(select);
   parent.insertBefore(label, before);
   return select;
@@ -72,6 +75,26 @@ bankFilterSelect.id = 'bank-filter';
 bankFilterSelect.setAttribute('aria-label', 'Filtrar por banco');
 setOptions(bankFilterSelect, [['all', 'Todos los bancos'], ...bankNames.map((name) => [name, name]), ['Sin asignar', 'Sin asignar']]);
 $('#filter').insertAdjacentElement('afterend', bankFilterSelect);
+function updateBankControls(currentBank = '', currentDestinationBank = '') {
+  const activeNames = bankRecords.filter((bank) => bank.active).map((bank) => bank.name);
+  const setBankOptions = (select, allowUnassigned, selected = '') => {
+    select.replaceChildren();
+    setOptions(select, [['', 'Selecciona un banco'], ...activeNames.map((name) => [name, name])]);
+    if (selected && selected !== 'Sin asignar' && !activeNames.includes(selected)) {
+      const archivedBank = bankRecords.find((bank) => bank.name === selected);
+      if (archivedBank) setOptions(select, [[selected, `${selected} (archivado)`]]);
+    }
+    if (allowUnassigned) setOptions(select, [['Sin asignar', 'Sin asignar']]);
+  };
+  setBankOptions(expenseBankSelect, true, currentBank);
+  setBankOptions(transferDestinationBankSelect, false, currentDestinationBank);
+  setBankOptions(csvBankSelect, false);
+  const selectedFilter = bankFilterSelect.value || 'all';
+  const allNames = [...new Set([...bankRecords.map((bank) => bank.name), ...defaultBankNames])].sort((a, b) => a.localeCompare(b, 'es'));
+  bankFilterSelect.replaceChildren();
+  setOptions(bankFilterSelect, [['all', 'Todos los bancos'], ...allNames.map((name) => [name, name]), ['Sin asignar', 'Sin asignar']]);
+  bankFilterSelect.value = [...allNames, 'Sin asignar', 'all'].includes(selectedFilter) ? selectedFilter : 'all';
+}
 const typeFilterSelect = document.createElement('select');
 typeFilterSelect.id = 'type-filter';
 typeFilterSelect.setAttribute('aria-label', 'Filtrar por tipo de movimiento');
@@ -162,7 +185,7 @@ const purchaseInstallments = (purchase) => Array.from(
   (_, index) => cardInstallment(purchase, index + 1),
 );
 function accumulatedBankBalances() {
-  const balances = new Map(bankNames.map((bank) => [bank, 0]));
+  const balances = new Map(bankRecords.map((bank) => [bank.name, 0]));
   const today = dateKey(new Date());
   const add = (bank, amount) => {
     if (balances.has(bank)) balances.set(bank, balances.get(bank) + Math.round(Number(amount) * 100));
@@ -189,21 +212,89 @@ function message(text, error = false) {
   target.style.color = error ? '#b23d48' : '#55535c';
 }
 
+function showAuthMode() {
+  $('#auth-title').textContent = signUpMode ? 'Crea tu cuenta en Fijo' : 'Entra en Fijo';
+  $('#auth-submit').textContent = signUpMode ? 'Crear cuenta' : 'Iniciar sesión';
+  $('#auth-mode-toggle').textContent = signUpMode ? 'Ya tengo una cuenta' : 'Crear una cuenta nueva';
+  $('#auth-help').textContent = signUpMode
+    ? 'Cada cuenta tiene sus propios movimientos y bancos.'
+    : 'Tus movimientos son privados y solo visibles desde tu cuenta.';
+  message('');
+}
+
+async function loadUserBanks() {
+  let { data, error } = await supabase.from('user_banks').select('id,name,active').order('name');
+  if (error) {
+    $('#bank-schema-notice').hidden = !['PGRST205', '42P01'].includes(error.code);
+    showError(error);
+    return false;
+  }
+  $('#bank-schema-notice').hidden = true;
+  if (!data?.length) {
+    const { error: seedError } = await supabase.from('user_banks').upsert(
+      defaultBankNames.map((name) => ({ user_id: currentUser.id, name })),
+      { onConflict: 'user_id,name', ignoreDuplicates: true },
+    );
+    if (seedError) {
+      showError(seedError);
+      return false;
+    }
+    ({ data, error } = await supabase.from('user_banks').select('id,name,active').order('name'));
+    if (error) {
+      showError(error);
+      return false;
+    }
+  }
+  bankRecords = data || [];
+  bankNames = bankRecords.filter((bank) => bank.active).map((bank) => bank.name);
+  updateBankControls();
+  renderBankBalances();
+  return true;
+}
+
+function renderBankBalances() {
+  const balances = accumulatedBankBalances();
+  const grid = $('#bank-balance-grid');
+  grid.replaceChildren();
+  for (const bank of bankRecords) {
+    const item = document.createElement('div');
+    item.className = 'bank-balance-item';
+    const name = document.createElement('span');
+    name.textContent = bank.active ? bank.name : `${bank.name} (archivado)`;
+    const amount = document.createElement('strong');
+    amount.textContent = money.format((balances.get(bank.name) || 0) / 100);
+    item.append(name, amount);
+    grid.append(item);
+  }
+}
+
 async function showApp(user) {
   currentUser = user;
   $('#auth-screen').hidden = true;
   document.querySelector('.app-shell').hidden = false;
+  if (!await loadUserBanks()) return;
   await loadMonth();
 }
 
 $('#auth-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  message('Comprobando acceso…');
-  const { error } = await supabase.auth.signInWithPassword({ email: $('#auth-email').value.trim(), password: $('#auth-password').value });
+  message(signUpMode ? 'Creando cuenta…' : 'Comprobando acceso…');
+  if (signUpMode) {
+    const { data, error } = await supabase.auth.signUp({
+      email: $('#auth-email').value.trim(),
+      password: $('#auth-password').value,
+      options: { emailRedirectTo: window.location.origin },
+    });
+    if (error) return message(`No se pudo crear la cuenta: ${error.message}`, true);
+    if (data.session && data.user) await showApp(data.user);
+    else message('Cuenta creada. Revisa tu correo para confirmar la dirección y después inicia sesión.');
+    return;
+  }
+  const { data, error } = await supabase.auth.signInWithPassword({ email: $('#auth-email').value.trim(), password: $('#auth-password').value });
   if (error) return message('No se pudo iniciar sesión. Comprueba el correo y la contraseña.', true);
-  const { data } = await supabase.auth.getUser();
   await showApp(data.user);
 });
+$('#auth-mode-toggle').addEventListener('click', () => { signUpMode = !signUpMode; showAuthMode(); });
 $('#sign-out')?.addEventListener('click', async () => { await supabase.auth.signOut(); location.reload(); });
 
 async function loadMonth() {
@@ -445,10 +536,7 @@ function render() {
   $('#income-foot').textContent = `${incomeItems.length} ${incomeItems.length === 1 ? 'ingreso registrado' : 'ingresos registrados'}`;
   $('#balance-value').textContent = money.format(incomeTotal - paidTotal);
   $('#balance-foot').textContent = `${money.format(incomeTotal)} de ingresos − ${money.format(paidTotal)} de gastos pagados`;
-  const bankBalances = accumulatedBankBalances();
-  $('#bank-balance-santander').textContent = money.format(bankBalances.get('Santander') / 100);
-  $('#bank-balance-ing').textContent = money.format(bankBalances.get('ING') / 100);
-  $('#bank-balance-revolut').textContent = money.format(bankBalances.get('Revolut') / 100);
+  renderBankBalances();
   $('#card-paid-value').textContent = money.format(cardTotal);
   $('#total-foot').textContent = totalFooters[frequencyFilter] || `${fixedPaidLabel} + ${variablePaidLabel} + ${cardPaidItems.length} ${cardPaidItems.length === 1 ? 'cuota pagada' : 'cuotas pagadas'}`;
   const pendingCount = fixedPendingItems.length + cardPendingItems.length;
@@ -540,6 +628,7 @@ function render() {
 
 function openDialog(item = null, source = 'fixed') {
   $('#expense-form').reset();
+  updateBankControls(item?.bank || item?.from_bank || '', item?.to_bank || '');
   const purchase = source === 'credit_card' ? cardPurchases.find((entry) => entry.id === item?.purchase_id) : null;
   const purchaseHasPaidInstallments = Boolean(purchase?.paid_installments?.length);
   $('#expense-id').value = source === 'fixed' ? (item?.fixed_expense_id || '') : source === 'credit_card' ? (purchase?.id || '') : (item?.id || '');
@@ -635,6 +724,76 @@ $('#add-income').addEventListener('click', () => openDialog(null, 'income'));
 $('#add-transfer').addEventListener('click', () => openDialog(null, 'transfer'));
 $('#add-card-expense').addEventListener('click', () => openDialog(null, 'credit_card'));
 $('#mobile-add')?.addEventListener('click', () => openDialog());
+function renderBankList() {
+  const list = $('#bank-list');
+  list.replaceChildren();
+  for (const bank of bankRecords) {
+    const row = document.createElement('div');
+    row.className = 'bank-list-item';
+    const name = document.createElement('span');
+    name.textContent = bank.active ? bank.name : `${bank.name} (archivado)`;
+    const button = document.createElement('button');
+    button.className = 'cancel-button';
+    button.type = 'button';
+    button.dataset.bankId = bank.id;
+    button.dataset.active = String(bank.active);
+    button.textContent = bank.active ? 'Archivar' : 'Reactivar';
+    row.append(name, button);
+    list.append(row);
+  }
+}
+$('#manage-banks').addEventListener('click', () => {
+  renderBankList();
+  $('#bank-message').textContent = '';
+  $('#bank-dialog').showModal();
+});
+$('#close-bank-dialog').addEventListener('click', () => $('#bank-dialog').close());
+$('#bank-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (busy) return;
+  const name = $('#bank-name').value.trim();
+  if (!name || name.length > 60 || name.toLocaleLowerCase('es-ES') === 'sin asignar') {
+    $('#bank-message').textContent = 'Escribe un nombre de hasta 60 caracteres. «Sin asignar» está reservado.';
+    return;
+  }
+  if (bankRecords.some((bank) => bank.name.toLocaleLowerCase('es-ES') === name.toLocaleLowerCase('es-ES'))) {
+    $('#bank-message').textContent = 'Ya existe un banco con ese nombre.';
+    return;
+  }
+  busy = true;
+  const { error } = await supabase.from('user_banks').insert({ user_id: currentUser.id, name });
+  busy = false;
+  if (error) {
+    $('#bank-message').textContent = error.code === '23505' ? 'Ya existe un banco con ese nombre.' : `No se pudo guardar el banco: ${error.message}`;
+    return;
+  }
+  $('#bank-name').value = '';
+  $('#bank-message').textContent = 'Banco añadido.';
+  if (!await loadUserBanks()) return;
+  renderBankList();
+  render();
+});
+$('#bank-list').addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-bank-id]');
+  if (!button || busy) return;
+  const bank = bankRecords.find((entry) => entry.id === button.dataset.bankId);
+  if (!bank) return;
+  busy = true;
+  button.disabled = true;
+  const { error } = await supabase.from('user_banks')
+    .update({ active: !bank.active })
+    .eq('id', bank.id)
+    .eq('user_id', currentUser.id);
+  busy = false;
+  if (error) {
+    $('#bank-message').textContent = `No se pudo actualizar el banco: ${error.message}`;
+    button.disabled = false;
+    return;
+  }
+  if (!await loadUserBanks()) return;
+  renderBankList();
+  render();
+});
 $('#expense-frequency').addEventListener('change', updateFrequencyFields);
 $('#card-full-payment').addEventListener('change', () => {
   const purchaseDate = new Date(`${$('#expense-date').value}T00:00:00`);
@@ -657,7 +816,8 @@ $('#expense-form').addEventListener('submit', async (event) => {
   let error;
   if (source === 'transfer') {
     const toBank = transferDestinationBankSelect.value;
-    if (!bankNames.includes(values.bank) || !bankNames.includes(toBank) || values.bank === toBank) {
+    const bankIsAvailable = (name) => bankRecords.some((bank) => bank.name === name && (bank.active || Boolean(id)));
+    if (!bankIsAvailable(values.bank) || !bankIsAvailable(toBank) || values.bank === toBank) {
       transferDestinationBankSelect.setCustomValidity(values.bank === toBank
         ? 'El banco de origen y el de destino deben ser distintos.'
         : 'Selecciona un banco de destino válido.');
@@ -679,7 +839,8 @@ $('#expense-form').addEventListener('submit', async (event) => {
       : await supabase.from('bank_transfers').insert(transferValues);
     error = result.error;
   } else if (source === 'income') {
-    if (!bankNames.includes(values.bank)) {
+    const selectedBank = bankRecords.find((bank) => bank.name === values.bank);
+    if (!selectedBank || (!selectedBank.active && !id)) {
       $('#expense-bank').setCustomValidity('Selecciona el banco donde recibiste el ingreso.');
       $('#expense-bank').reportValidity();
       $('#expense-bank').setCustomValidity('');
